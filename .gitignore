@@ -1,0 +1,17 @@
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Editors
+.vscode/
+.idea/
+
+# General secrets
+.env
+.env.*
+
+docs/**/*.jpg
+docs/**/*.png
+docs/**/*.jpeg
+docs/**/*.JPG
+docs/**/*.JPEG
