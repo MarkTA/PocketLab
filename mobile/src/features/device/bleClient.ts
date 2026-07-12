@@ -77,6 +77,8 @@ class BleDiagnostic {
 
   private connectedDevice: Device | null = null;
 
+  private requestInProgress = false;
+
   /**
    * Incremented whenever a new connection becomes active or the current
    * connection is intentionally invalidated.
@@ -659,60 +661,58 @@ class BleDiagnostic {
   public async request(command: string, timeoutMs = 5000): Promise<string> {
     this.requireConnectedDevice();
 
-    if (!this.responseSubscription) {
-      this.startResponseMonitor();
+    if (this.requestInProgress) {
+      throw new Error("Another PocketLab request is already in progress.");
     }
 
-    return new Promise<string>((resolve, reject) => {
-      let settled = false;
+    this.requestInProgress = true;
 
-      const cleanup = () => {
-        clearTimeout(timeout);
-        this.responseListeners.delete(handleResponse);
-      };
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        let settled = false;
 
-      const handleResponse = (response: string) => {
-        if (settled) {
-          return;
-        }
+        const cleanup = () => {
+          clearTimeout(timeout);
+          this.responseListeners.delete(handleResponse);
+        };
 
-        settled = true;
-        cleanup();
-        resolve(response);
-      };
+        const finish = (action: () => void) => {
+          if (settled) {
+            return;
+          }
 
-      const timeout = setTimeout(() => {
-        if (settled) {
-          return;
-        }
+          settled = true;
+          cleanup();
+          action();
+        };
 
-        settled = true;
-        cleanup();
+        const handleResponse = (response: string) => {
+          finish(() => resolve(response));
+        };
 
-        reject(
-          new Error(`PocketLab command timed out after ${timeoutMs} ms: ${command}`)
-        );
-      }, timeoutMs);
+        const timeout = setTimeout(() => {
+          finish(() => {
+            reject(
+              new Error(`PocketLab command timed out after ${timeoutMs} ms: ${command}`)
+            );
+          });
+        }, timeoutMs);
 
-      /*
-       * Register the listener before writing so a fast response cannot
-       * arrive before the request is ready to receive it.
-       */
-      this.responseListeners.add(handleResponse);
+        this.responseListeners.add(handleResponse);
 
-      void this.writeCommand(command).catch((error: unknown) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        cleanup();
-
-        reject(
-          error instanceof Error ? error : new Error("PocketLab command write failed.")
-        );
+        void this.writeCommand(command).catch((error: unknown) => {
+          finish(() => {
+            reject(
+              error instanceof Error
+                ? error
+                : new Error("PocketLab command write failed.")
+            );
+          });
+        });
       });
-    });
+    } finally {
+      this.requestInProgress = false;
+    }
   }
 
   // ---------------------------------------------------------------------------

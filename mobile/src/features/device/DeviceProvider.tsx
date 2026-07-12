@@ -16,6 +16,8 @@ import type { FunctionGeneratorState, Waveform } from "../../types/pocketLab";
 
 import { bleDiagnostic } from "./bleClient";
 
+import { getPocketLabInfo, getPocketLabState, pingPocketLab } from "./pocketLabProtocol";
+
 // -----------------------------------------------------------------------------
 // Context types
 // -----------------------------------------------------------------------------
@@ -273,21 +275,13 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   // ---------------------------------------------------------------------------
 
   const testWrite = useCallback(async (): Promise<void> => {
-    if (!bleDiagnostic.hasConnectedDevice()) {
-      throw new Error("No PocketLab device is connected.");
-    }
+    await pingPocketLab();
 
-    const commandValue = await bleDiagnostic.directDeviceWriteTest("PING");
+    const info = await getPocketLabInfo();
+    console.log("[POCKETLAB] Device info:", info);
 
-    console.log(
-      `[DEVICE PROVIDER] Direct device read-back after write: "${commandValue}"`
-    );
-
-    if (commandValue !== "PING") {
-      throw new Error(
-        `Direct device write failed. COMMAND_RX still contains "${commandValue}".`
-      );
-    }
+    const deviceState = await getPocketLabState();
+    console.log("[POCKETLAB] Device state:", deviceState);
   }, []);
 
   // ---------------------------------------------------------------------------

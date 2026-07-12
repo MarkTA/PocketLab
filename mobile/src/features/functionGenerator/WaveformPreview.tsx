@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { LineChart } from "react-native-gifted-charts";
 import { Text } from "react-native-paper";
 import type { Waveform } from "../../types/pocketLab";
@@ -13,8 +13,11 @@ type Props = {
   outputEnabled: boolean;
 };
 
-const CHART_HEIGHT = 110;
-const CHART_WIDTH = 290;
+const SCREEN_HORIZONTAL_PADDING = 16;
+const CARD_HORIZONTAL_PADDING = 16;
+const MIN_CHART_HEIGHT = 120;
+const MAX_CHART_HEIGHT = 120;
+const CHART_ASPECT_RATIO = 1.8;
 
 export function WaveformPreview({
   waveform,
@@ -23,6 +26,27 @@ export function WaveformPreview({
   offsetV,
   outputEnabled,
 }: Props) {
+  const { width: windowWidth } = useWindowDimensions();
+
+  const chartDimensions = useMemo(() => {
+    const availableWidth =
+      windowWidth - SCREEN_HORIZONTAL_PADDING * 2 - CARD_HORIZONTAL_PADDING * 2;
+
+    const width = Math.max(0, availableWidth);
+
+    const calculatedHeight = width / CHART_ASPECT_RATIO;
+
+    const height = Math.min(
+      MAX_CHART_HEIGHT,
+      Math.max(MIN_CHART_HEIGHT, calculatedHeight)
+    );
+
+    return {
+      width,
+      height,
+    };
+  }, [windowWidth]);
+
   const data = useMemo(() => {
     const points = 81;
     const halfAmp = amplitudeVpp / 2;
@@ -84,8 +108,8 @@ export function WaveformPreview({
       <Text style={styles.yAxisTitle}>v(t)</Text>
       <LineChart
         data={data}
-        height={CHART_HEIGHT}
-        width={CHART_WIDTH}
+        height={chartDimensions.height}
+        width={chartDimensions.width}
         areaChart={false}
         noOfSections={4}
         noOfSectionsBelowXAxis={4}
@@ -101,7 +125,7 @@ export function WaveformPreview({
         endSpacing={8}
         rulesType="dashed"
         rulesColor={pocketLabColors.grid}
-        spacing={CHART_WIDTH / (data.length + 2)}
+        spacing={chartDimensions.width / (data.length + 2)}
         curvature={0.3}
       />
       <Text style={styles.xAxisTitle}>t</Text>
@@ -146,6 +170,8 @@ const styles = StyleSheet.create({
   chartBox: {
     position: "relative",
     backgroundColor: pocketLabColors.surface,
+    width: "100%",
+    overflow: "hidden",
     borderRadius: 10,
     paddingTop: 40,
     paddingRight: 8,
