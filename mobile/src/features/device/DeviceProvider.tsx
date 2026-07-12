@@ -15,12 +15,27 @@ import type { Device } from "react-native-ble-plx";
 import type { FunctionGeneratorState, Waveform } from "../../types/pocketLab";
 
 import { bleDiagnostic } from "./bleClient";
+import {
+  getPocketLabInfo,
+  getPocketLabState,
+  pingPocketLab,
+  setPocketLabAmplitude,
+  setPocketLabFrequency,
+  setPocketLabOffset,
+  setPocketLabOutput,
+  setPocketLabSettings,
+  setPocketLabWaveform,
+  type PocketLabSettings,
+  type PocketLabState,
+  type PocketLabWaveform,
+} from "./pocketLabProtocol";
 
-import { getPocketLabInfo, getPocketLabState, pingPocketLab } from "./pocketLabProtocol";
-
-// -----------------------------------------------------------------------------
-// Context types
-// -----------------------------------------------------------------------------
+export type FunctionGeneratorSettings = {
+  frequencyHz: number;
+  amplitudeVpp: number;
+  offsetV: number;
+  waveform: Waveform;
+};
 
 type DeviceContextValue = {
   state: FunctionGeneratorState;
@@ -35,16 +50,14 @@ type DeviceContextValue = {
   disconnect: () => Promise<void>;
   testWrite: () => Promise<void>;
 
-  setOffset: (volts: number) => void;
-  setFrequency: (hz: number) => void;
-  setAmplitude: (vpp: number) => void;
-  setWaveform: (waveform: Waveform) => void;
-  setOutputEnabled: (enabled: boolean) => void;
-};
+  setGeneratorSettings: (settings: FunctionGeneratorSettings) => Promise<void>;
 
-// -----------------------------------------------------------------------------
-// Initial state
-// -----------------------------------------------------------------------------
+  setOffset: (volts: number) => Promise<void>;
+  setFrequency: (hz: number) => Promise<void>;
+  setAmplitude: (vpp: number) => Promise<void>;
+  setWaveform: (waveform: Waveform) => Promise<void>;
+  setOutputEnabled: (enabled: boolean) => Promise<void>;
+};
 
 const initialState: FunctionGeneratorState = {
   connected: false,
@@ -58,30 +71,58 @@ const initialState: FunctionGeneratorState = {
 
 const SCAN_DURATION_MS = 10_000;
 
-// -----------------------------------------------------------------------------
-// Context
-// -----------------------------------------------------------------------------
-
 const DeviceContext = createContext<DeviceContextValue | null>(null);
 
-// -----------------------------------------------------------------------------
-// Provider
-// -----------------------------------------------------------------------------
+const UI_TO_PROTOCOL_WAVEFORM: Record<Waveform, PocketLabWaveform> = {
+  sine: "SINE",
+  square: "SQUARE",
+  triangle: "TRIANGLE",
+  rampUp: "RAMP_UP",
+  rampDown: "RAMP_DOWN",
+  dc: "DC",
+};
+
+const PROTOCOL_TO_UI_WAVEFORM: Record<PocketLabWaveform, Waveform> = {
+  SINE: "sine",
+  SQUARE: "square",
+  TRIANGLE: "triangle",
+  RAMP_UP: "rampUp",
+  RAMP_DOWN: "rampDown",
+  DC: "dc",
+};
+
+function toUiState(
+  deviceState: PocketLabState
+): Pick<
+  FunctionGeneratorState,
+  "frequencyHz" | "amplitudeVpp" | "offsetV" | "waveform" | "outputEnabled"
+> {
+  return {
+    frequencyHz: deviceState.frequencyHz,
+    amplitudeVpp: deviceState.amplitudeVpp,
+    offsetV: deviceState.offsetV,
+    waveform: PROTOCOL_TO_UI_WAVEFORM[deviceState.waveform],
+    outputEnabled: deviceState.outputEnabled,
+  };
+}
+
+function toProtocolSettings(settings: FunctionGeneratorSettings): PocketLabSettings {
+  return {
+    frequencyHz: settings.frequencyHz,
+    amplitudeVpp: settings.amplitudeVpp,
+    offsetV: settings.offsetV,
+    waveform: UI_TO_PROTOCOL_WAVEFORM[settings.waveform],
+  };
+}
 
 export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<FunctionGeneratorState>(initialState);
 
   const [scanning, setScanning] = useState(false);
-
   const [reconnecting, setReconnecting] = useState(false);
-
   const [discoveredDevices, setDiscoveredDevices] = useState<Device[]>([]);
 
   const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // Scan timer helpers
-  // ---------------------------------------------------------------------------
 
   const clearScanTimeout = useCallback(() => {
     if (!scanTimeoutRef.current) {
@@ -105,13 +146,8 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     };
   }, [clearScanTimeout]);
 
-  // ---------------------------------------------------------------------------
-  // Scanning
-  // ---------------------------------------------------------------------------
-
   const scanForDevices = useCallback(async (): Promise<void> => {
     clearScanTimeout();
-
     setDiscoveredDevices([]);
     setScanning(true);
 
@@ -122,17 +158,9 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
             (existingDevice) => existingDevice.id === device.id
           );
 
-          /*
-           * Android may report the same device many
-           * times during one scan. Replace the existing
-           * entry so its RSSI and advertisement data stay
-           * current.
-           */
           if (existingIndex >= 0) {
             const updatedDevices = [...previousDevices];
-
             updatedDevices[existingIndex] = device;
-
             return updatedDevices;
           }
 
@@ -149,14 +177,20 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       bleDiagnostic.stopScan();
       setScanning(false);
       clearScanTimeout();
-
       throw error;
     }
   }, [clearScanTimeout]);
 
-  // ---------------------------------------------------------------------------
-  // Connection
-  // ---------------------------------------------------------------------------
+  const synchronizeDeviceState = useCallback(async (): Promise<void> => {
+    const deviceState = await getPocketLabState();
+
+    setState((previousState) => ({
+      ...previousState,
+      ...toUiState(deviceState),
+    }));
+
+    console.log("[DEVICE PROVIDER] State synchronized:", deviceState);
+  }, []);
 
   const connect = useCallback(
     async (device: Device): Promise<void> => {
@@ -167,7 +201,6 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         const connectedDevice = await bleDiagnostic.connect(
           device,
 
-          // Unexpected disconnection
           (error) => {
             if (error) {
               console.error("[DEVICE PROVIDER] Connection lost:", error);
@@ -175,13 +208,6 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
               console.log("[DEVICE PROVIDER] Device disconnected");
             }
 
-            /*
-             * Keep deviceName so the UI can continue showing
-             * which device it is trying to reconnect to.
-             *
-             * Setting reconnecting immediately also prevents
-             * the UI from briefly switching to its scan view.
-             */
             setReconnecting(true);
 
             setState((previousState) => ({
@@ -191,7 +217,6 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
             }));
           },
 
-          // Reconnection process started
           () => {
             console.log("[DEVICE PROVIDER] Attempting to reconnect");
 
@@ -204,7 +229,6 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
             }));
           },
 
-          // Reconnection succeeded
           (reconnectedDevice) => {
             console.log("[DEVICE PROVIDER] Reconnected successfully");
 
@@ -219,6 +243,10 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
                 previousState.deviceName ??
                 "PocketLab Device",
             }));
+
+            void synchronizeDeviceState().catch((error) => {
+              console.error("[DEVICE PROVIDER] Reconnect state sync failed:", error);
+            });
           }
         );
 
@@ -239,6 +267,8 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
           "[DEVICE PROVIDER] Connected to:",
           connectedDevice.name ?? connectedDevice.localName ?? connectedDevice.id
         );
+
+        await synchronizeDeviceState();
       } catch (error) {
         setReconnecting(false);
 
@@ -251,7 +281,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         throw error;
       }
     },
-    [stopScan]
+    [stopScan, synchronizeDeviceState]
   );
 
   const disconnect = useCallback(async (): Promise<void> => {
@@ -270,10 +300,6 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [stopScan]);
 
-  // ---------------------------------------------------------------------------
-  // Protocol diagnostic
-  // ---------------------------------------------------------------------------
-
   const testWrite = useCallback(async (): Promise<void> => {
     await pingPocketLab();
 
@@ -284,72 +310,77 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     console.log("[POCKETLAB] Device state:", deviceState);
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Function-generator local state
-  //
-  // These currently update only app state. Later they will call the
-  // FunctionGenerator instrument API and send protocol commands.
-  // ---------------------------------------------------------------------------
+  const setGeneratorSettings = useCallback(
+    async (settings: FunctionGeneratorSettings): Promise<void> => {
+      await setPocketLabSettings(toProtocolSettings(settings));
 
-  const setOffset = useCallback((volts: number): void => {
-    const safeValue = Number.isFinite(volts) ? volts : 0;
+      setState((previousState) => ({
+        ...previousState,
+        ...settings,
+      }));
+    },
+    []
+  );
 
-    setState((previousState) => ({
-      ...previousState,
-      offsetV: Math.min(2.5, Math.max(-2.5, safeValue)),
-    }));
-  }, []);
-
-  const setFrequency = useCallback((hz: number): void => {
-    const safeFrequency = Number.isFinite(hz) ? hz : 1;
+  const setOffset = useCallback(async (volts: number): Promise<void> => {
+    await setPocketLabOffset(volts);
 
     setState((previousState) => ({
       ...previousState,
-      frequencyHz: Math.max(1, Math.round(safeFrequency)),
+      offsetV: volts,
     }));
   }, []);
 
-  const setAmplitude = useCallback((vpp: number): void => {
-    const safeAmplitude = Number.isFinite(vpp) ? vpp : 0;
+  const setFrequency = useCallback(async (hz: number): Promise<void> => {
+    const frequencyHz = Math.round(hz);
+
+    await setPocketLabFrequency(frequencyHz);
 
     setState((previousState) => ({
       ...previousState,
-      amplitudeVpp: Math.max(0, Number(safeAmplitude.toFixed(2))),
+      frequencyHz,
     }));
   }, []);
 
-  const setWaveform = useCallback((waveform: Waveform): void => {
+  const setAmplitude = useCallback(async (vpp: number): Promise<void> => {
+    await setPocketLabAmplitude(vpp);
+
+    setState((previousState) => ({
+      ...previousState,
+      amplitudeVpp: vpp,
+    }));
+  }, []);
+
+  const setWaveform = useCallback(async (waveform: Waveform): Promise<void> => {
+    await setPocketLabWaveform(UI_TO_PROTOCOL_WAVEFORM[waveform]);
+
     setState((previousState) => ({
       ...previousState,
       waveform,
     }));
   }, []);
 
-  const setOutputEnabled = useCallback((enabled: boolean): void => {
+  const setOutputEnabled = useCallback(async (enabled: boolean): Promise<void> => {
+    await setPocketLabOutput(enabled);
+
     setState((previousState) => ({
       ...previousState,
       outputEnabled: enabled,
     }));
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Context value
-  // ---------------------------------------------------------------------------
-
   const value = useMemo<DeviceContextValue>(
     () => ({
       state,
-
       scanning,
       reconnecting,
       discoveredDevices,
-
       scanForDevices,
       stopScan,
       connect,
       disconnect,
       testWrite,
-
+      setGeneratorSettings,
       setOffset,
       setFrequency,
       setAmplitude,
@@ -366,6 +397,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       connect,
       disconnect,
       testWrite,
+      setGeneratorSettings,
       setOffset,
       setFrequency,
       setAmplitude,
@@ -376,10 +408,6 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>;
 }
-
-// -----------------------------------------------------------------------------
-// Hook
-// -----------------------------------------------------------------------------
 
 export function usePocketLabDevice(): DeviceContextValue {
   const context = useContext(DeviceContext);

@@ -6,7 +6,7 @@ export const pocketLabColors = {
   teal: "#62C8D3",
   green: "#67a33c",
   darkGreen: "#5f913b",
-  orange: "#F47A00",
+  orange: "#D85B24",
   background: "#F4F6F8",
   surface: "#FFFFFF",
   elevation: "#FFFFFF",
@@ -16,6 +16,18 @@ export const pocketLabColors = {
   axis: "#222222",
   danger: "#D31F11",
 };
+
+// export const recommendedColors = {
+//   App background       #1E2226
+//   Card background      #F7F8F8
+//   Primary teal         #23899A
+//   Header background    #D8F0F3
+//   Run green            #4F8F3A
+//   Stop orange-red      #D85B24
+//   Primary text         #1D2529
+//   Secondary text       #667078
+//   Grid                 #D7DDE0
+// }
 
 export const paperTheme = {
   ...MD3LightTheme,

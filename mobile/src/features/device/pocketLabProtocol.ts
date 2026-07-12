@@ -1,3 +1,5 @@
+/* src/features/device/pocketLabProtocol.ts */
+
 import { bleDiagnostic } from "./bleClient";
 
 export type PocketLabWaveform =
@@ -9,13 +11,25 @@ export type PocketLabInfo = {
   hardwareVersion: string;
 };
 
-export type PocketLabState = {
+export type PocketLabSettings = {
   frequencyHz: number;
   amplitudeVpp: number;
   offsetV: number;
   waveform: PocketLabWaveform;
+};
+
+export type PocketLabState = PocketLabSettings & {
   outputEnabled: boolean;
 };
+
+const VALID_WAVEFORMS: readonly PocketLabWaveform[] = [
+  "SINE",
+  "SQUARE",
+  "TRIANGLE",
+  "RAMP_UP",
+  "RAMP_DOWN",
+  "DC",
+];
 
 function parseFields(text: string): Record<string, string> {
   const fields: Record<string, string> = {};
@@ -42,7 +56,6 @@ function throwIfProtocolError(response: string): void {
   }
 
   const errorCode = response.slice(4).trim();
-
   throw new Error(`PocketLab protocol error: ${errorCode}`);
 }
 
@@ -53,6 +66,24 @@ async function expectOk(command: string): Promise<void> {
 
   if (response !== "OK") {
     throw new Error(`Unexpected PocketLab response to "${command}": "${response}"`);
+  }
+}
+
+function validateSettings(settings: PocketLabSettings): void {
+  if (!Number.isInteger(settings.frequencyHz)) {
+    throw new Error("Frequency must be an integer.");
+  }
+
+  if (!Number.isFinite(settings.amplitudeVpp)) {
+    throw new Error("Amplitude must be finite.");
+  }
+
+  if (!Number.isFinite(settings.offsetV)) {
+    throw new Error("Offset must be finite.");
+  }
+
+  if (!VALID_WAVEFORMS.includes(settings.waveform)) {
+    throw new Error(`Unsupported waveform: ${settings.waveform}`);
   }
 }
 
@@ -109,7 +140,7 @@ export async function getPocketLabState(): Promise<PocketLabState> {
     !Number.isFinite(frequencyHz) ||
     !Number.isFinite(amplitudeVpp) ||
     !Number.isFinite(offsetV) ||
-    !fields.WAVE ||
+    !VALID_WAVEFORMS.includes(waveform) ||
     !["ON", "OFF"].includes(fields.OUTPUT)
   ) {
     throw new Error(`Invalid STATE response: "${response}"`);
@@ -122,6 +153,18 @@ export async function getPocketLabState(): Promise<PocketLabState> {
     waveform,
     outputEnabled,
   };
+}
+
+export async function setPocketLabSettings(settings: PocketLabSettings): Promise<void> {
+  validateSettings(settings);
+
+  const command =
+    `SET_STATE FREQ=${settings.frequencyHz};` +
+    `AMP=${settings.amplitudeVpp.toFixed(2)};` +
+    `OFFSET=${settings.offsetV.toFixed(2)};` +
+    `WAVE=${settings.waveform}`;
+
+  await expectOk(command);
 }
 
 export async function setPocketLabFrequency(frequencyHz: number): Promise<void> {

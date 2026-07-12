@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  Text,
   type ScrollViewProps,
   type StyleProp,
   type ViewStyle,

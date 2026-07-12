@@ -1,1 +1,8 @@
-Schematics go here
+Wiring
+
+AD9833 pin     NodeMCU-32S pin
+SCLK    <--->  GPIO 18
+SDATA   <--->  GPIO 23
+FSYNC   <--->  GPIO 5
+DGND    <--->  GND
+VCC     <--->  3V3

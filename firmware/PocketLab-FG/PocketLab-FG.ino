@@ -28,7 +28,7 @@
 
 constexpr char DEVICE_NAME[] = "PocketLab-FG";
 constexpr char MODEL_NAME[] = "PocketLab-FG";
-constexpr char FIRMWARE_VERSION[] = "0.1.0";
+constexpr char FIRMWARE_VERSION[] = "0.2.0";
 constexpr char HARDWARE_VERSION[] = "PROTO-1";
 
 // -----------------------------------------------------------------------------
@@ -475,6 +475,194 @@ void handleSetWaveform(String argument) {
     sendOk();
 }
 
+
+bool parseStateField(
+    const String& field,
+    String& key,
+    String& value
+) {
+    int separatorIndex = field.indexOf('=');
+
+    if (
+        separatorIndex <= 0 ||
+        separatorIndex >= static_cast<int>(field.length()) - 1
+    ) {
+        return false;
+    }
+
+    key = field.substring(0, separatorIndex);
+    value = field.substring(separatorIndex + 1);
+
+    key.trim();
+    value.trim();
+    key.toUpperCase();
+
+    return key.length() > 0 && value.length() > 0;
+}
+
+void handleSetState(const String& argument) {
+    FunctionGeneratorState pendingState = generatorState;
+
+    bool hasFrequency = false;
+    bool hasAmplitude = false;
+    bool hasOffset = false;
+    bool hasWaveform = false;
+
+    int fieldStart = 0;
+
+    while (fieldStart <= static_cast<int>(argument.length())) {
+        int fieldEnd = argument.indexOf(';', fieldStart);
+
+        if (fieldEnd < 0) {
+            fieldEnd = argument.length();
+        }
+
+        String field = argument.substring(fieldStart, fieldEnd);
+        field.trim();
+
+        if (field.length() == 0) {
+            sendError("INVALID_STATE_FORMAT");
+            return;
+        }
+
+        String key;
+        String value;
+
+        if (!parseStateField(field, key, value)) {
+            sendError("INVALID_STATE_FORMAT");
+            return;
+        }
+
+        if (key == "FREQ") {
+            if (hasFrequency) {
+                sendError("DUPLICATE_STATE_FIELD");
+                return;
+            }
+
+            uint32_t frequencyHz = 0;
+
+            if (!parseUnsignedInteger(value, frequencyHz)) {
+                sendError("INVALID_FREQUENCY");
+                return;
+            }
+
+            if (
+                frequencyHz < MIN_FREQUENCY_HZ ||
+                frequencyHz > MAX_FREQUENCY_HZ
+            ) {
+                sendError("FREQUENCY_OUT_OF_RANGE");
+                return;
+            }
+
+            pendingState.frequencyHz = frequencyHz;
+            hasFrequency = true;
+        } else if (key == "AMP") {
+            if (hasAmplitude) {
+                sendError("DUPLICATE_STATE_FIELD");
+                return;
+            }
+
+            float amplitudeVpp = 0.0f;
+
+            if (!parseFloatValue(value, amplitudeVpp)) {
+                sendError("INVALID_AMPLITUDE");
+                return;
+            }
+
+            if (
+                amplitudeVpp < MIN_AMPLITUDE_VPP ||
+                amplitudeVpp > MAX_AMPLITUDE_VPP
+            ) {
+                sendError("AMPLITUDE_OUT_OF_RANGE");
+                return;
+            }
+
+            pendingState.amplitudeVpp = amplitudeVpp;
+            hasAmplitude = true;
+        } else if (key == "OFFSET") {
+            if (hasOffset) {
+                sendError("DUPLICATE_STATE_FIELD");
+                return;
+            }
+
+            float offsetV = 0.0f;
+
+            if (!parseFloatValue(value, offsetV)) {
+                sendError("INVALID_OFFSET");
+                return;
+            }
+
+            if (
+                offsetV < MIN_OFFSET_V ||
+                offsetV > MAX_OFFSET_V
+            ) {
+                sendError("OFFSET_OUT_OF_RANGE");
+                return;
+            }
+
+            pendingState.offsetV = offsetV;
+            hasOffset = true;
+        } else if (key == "WAVE") {
+            if (hasWaveform) {
+                sendError("DUPLICATE_STATE_FIELD");
+                return;
+            }
+
+            value.toUpperCase();
+
+            Waveform waveform;
+
+            if (!parseWaveform(value, waveform)) {
+                sendError("INVALID_WAVEFORM");
+                return;
+            }
+
+            pendingState.waveform = waveform;
+            hasWaveform = true;
+        } else {
+            sendError("UNKNOWN_STATE_FIELD");
+            return;
+        }
+
+        if (fieldEnd >= static_cast<int>(argument.length())) {
+            break;
+        }
+
+        fieldStart = fieldEnd + 1;
+    }
+
+    if (
+        !hasFrequency ||
+        !hasAmplitude ||
+        !hasOffset ||
+        !hasWaveform
+    ) {
+        sendError("MISSING_STATE_FIELD");
+        return;
+    }
+
+    /*
+     * All fields have been parsed and validated. Apply them together so the
+     * device never enters a partially updated configuration.
+     */
+    generatorState = pendingState;
+
+    /*
+     * TODO:
+     * Apply generatorState to the AD9833 and analog output stage here.
+     */
+
+    Serial.printf(
+        "[STATE] Applied FREQ=%lu;AMP=%.2f;OFFSET=%.2f;WAVE=%s\n",
+        static_cast<unsigned long>(generatorState.frequencyHz),
+        generatorState.amplitudeVpp,
+        generatorState.offsetV,
+        waveformToString(generatorState.waveform).c_str()
+    );
+
+    sendOk();
+}
+
 void handleOutput(String argument) {
     argument.toUpperCase();
 
@@ -561,6 +749,16 @@ void processCommand(String command) {
     // -------------------------------------------------------------------------
     // Commands requiring one argument
     // -------------------------------------------------------------------------
+
+    if (commandName == "SET_STATE") {
+        if (!requireArgument(argument)) {
+            sendError("MISSING_ARGUMENT");
+            return;
+        }
+
+        handleSetState(argument);
+        return;
+    }
 
     if (commandName == "SET_FREQ") {
         if (!requireArgument(argument)) {

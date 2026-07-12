@@ -1,7 +1,9 @@
+/* src/features/functionGenerator/WaveformPreview.tsx */
+
 import React, { useMemo } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
-import { LineChart } from "react-native-gifted-charts";
-import { Text } from "react-native-paper";
+import Svg, { ClipPath, Defs, Line, Path, Rect, Text as SvgText } from "react-native-svg";
+
 import type { Waveform } from "../../types/pocketLab";
 import { pocketLabColors } from "@/themes/theme";
 
@@ -13,11 +15,24 @@ type Props = {
   outputEnabled: boolean;
 };
 
+type Point = {
+  x: number;
+  y: number;
+};
+
 const SCREEN_HORIZONTAL_PADDING = 16;
 const CARD_HORIZONTAL_PADDING = 16;
-const MIN_CHART_HEIGHT = 120;
-const MAX_CHART_HEIGHT = 120;
-const CHART_ASPECT_RATIO = 1.8;
+
+const CHART_HEIGHT = 240;
+const LEFT_MARGIN = 58;
+const RIGHT_MARGIN = 16;
+const TOP_MARGIN = 18;
+const BOTTOM_MARGIN = 42;
+
+const X_TICK_COUNT = 5;
+const Y_TICK_COUNT = 5;
+const SAMPLE_COUNT = 160;
+const CYCLE_COUNT = 2;
 
 export function WaveformPreview({
   waveform,
@@ -28,219 +43,328 @@ export function WaveformPreview({
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
 
-  const chartDimensions = useMemo(() => {
-    const availableWidth =
-      windowWidth - SCREEN_HORIZONTAL_PADDING * 2 - CARD_HORIZONTAL_PADDING * 2;
+  const chartWidth = Math.max(
+    0,
+    windowWidth - SCREEN_HORIZONTAL_PADDING * 2 - CARD_HORIZONTAL_PADDING * 2
+  );
 
-    const width = Math.max(0, availableWidth);
+  const plotWidth = chartWidth - LEFT_MARGIN - RIGHT_MARGIN;
+  const plotHeight = CHART_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN;
 
-    const calculatedHeight = width / CHART_ASPECT_RATIO;
+  const safeFrequencyHz =
+    Number.isFinite(frequencyHz) && frequencyHz > 0 ? frequencyHz : 1;
 
-    const height = Math.min(
-      MAX_CHART_HEIGHT,
-      Math.max(MIN_CHART_HEIGHT, calculatedHeight)
-    );
+  const safeAmplitudeVpp =
+    Number.isFinite(amplitudeVpp) && amplitudeVpp >= 0 ? amplitudeVpp : 0;
 
-    return {
-      width,
-      height,
-    };
-  }, [windowWidth]);
+  const safeOffsetV = Number.isFinite(offsetV) ? offsetV : 0;
 
-  const data = useMemo(() => {
-    const points = 81;
-    const halfAmp = amplitudeVpp / 2;
+  const halfAmplitude = safeAmplitudeVpp / 2;
+  const paddingV = Math.max(safeAmplitudeVpp * 0.18, 0.1);
 
-    return Array.from({ length: points }, (_, i) => {
-      const t = i / (points - 1);
-      const cycles = t * 2;
+  const minVoltage = safeOffsetV - halfAmplitude - paddingV;
+  const maxVoltage = safeOffsetV + halfAmplitude + paddingV;
+
+  const totalTimeSec = CYCLE_COUNT / safeFrequencyHz;
+
+  const xForTime = (timeSec: number) =>
+    LEFT_MARGIN + (timeSec / totalTimeSec) * plotWidth;
+
+  const yForVoltage = (voltage: number) =>
+    TOP_MARGIN + ((maxVoltage - voltage) / (maxVoltage - minVoltage)) * plotHeight;
+
+  const waveformPath = useMemo(() => {
+    const points: Point[] = Array.from({ length: SAMPLE_COUNT + 1 }, (_, index) => {
+      const progress = index / SAMPLE_COUNT;
+      const cycles = progress * CYCLE_COUNT;
       const phase = cycles % 1;
 
-      let norm = 0;
+      let normalized = 0;
 
       switch (waveform) {
         case "sine":
-          norm = Math.sin(2 * Math.PI * cycles);
+          normalized = Math.sin(2 * Math.PI * cycles);
           break;
+
         case "square":
-          norm = phase < 0.5 ? 1 : -1;
+          normalized = phase < 0.5 ? 1 : -1;
           break;
+
         case "triangle":
-          norm = 1 - 4 * Math.abs(phase - 0.5);
+          normalized = 1 - 4 * Math.abs(phase - 0.5);
           break;
-        case "dc":
-          norm = 0;
-          break;
+
         case "rampUp":
-          norm = 2 * phase - 1;
+          normalized = 2 * phase - 1;
           break;
+
         case "rampDown":
-          norm = 1 - 2 * phase;
+          normalized = 1 - 2 * phase;
+          break;
+
+        case "dc":
+          normalized = 0;
           break;
       }
 
-      const voltage = halfAmp * norm;
+      const voltage = safeOffsetV + halfAmplitude * normalized;
 
       return {
-        value: voltage,
-        showVerticalLine: [0, 20, 40, 60, 80].includes(i),
-        verticalLineColor: "rgba(0,0,0,0.12)",
-        verticalLineThickness: 1,
-        verticalLineStrokeDashArray: [4, 6],
+        x: LEFT_MARGIN + progress * plotWidth,
+        y: yForVoltage(voltage),
       };
     });
-  }, [waveform, frequencyHz, amplitudeVpp, offsetV, outputEnabled]);
 
-  const yLimit = (amplitudeVpp * 2) / 3;
-  const yStep = yLimit / 4;
+    if (waveform === "square") {
+      return buildStepPath(points);
+    }
 
-  const yAxisLabelTexts = Array.from({ length: 9 }, (_, i) => {
-    const graphVoltage = yLimit - i * yStep;
-    const displayedVoltage = offsetV + graphVoltage;
-    return displayedVoltage.toFixed(2);
-  });
+    return buildLinearPath(points);
+  }, [waveform, safeOffsetV, halfAmplitude, plotWidth, minVoltage, maxVoltage]);
 
-  const periodSec = 1 / frequencyHz;
-  const xLabels = [0, 0.5, 1, 1.5, 2].map((k) => k * periodSec);
+  const xTicks = useMemo(
+    () =>
+      Array.from({ length: X_TICK_COUNT }, (_, index) => {
+        const progress = index / (X_TICK_COUNT - 1);
+        const timeSec = progress * totalTimeSec;
+
+        return {
+          x: LEFT_MARGIN + progress * plotWidth,
+          label: formatTime(timeSec),
+        };
+      }),
+    [plotWidth, totalTimeSec]
+  );
+
+  const yTicks = useMemo(
+    () =>
+      Array.from({ length: Y_TICK_COUNT }, (_, index) => {
+        const progress = index / (Y_TICK_COUNT - 1);
+
+        const voltage = maxVoltage - progress * (maxVoltage - minVoltage);
+
+        return {
+          y: TOP_MARGIN + progress * plotHeight,
+          label: formatVoltage(voltage),
+        };
+      }),
+    [minVoltage, maxVoltage, plotHeight]
+  );
+
+  const signalColor = outputEnabled ? pocketLabColors.orange : pocketLabColors.darkTeal;
+
+  const zeroLineVisible = minVoltage <= 0 && maxVoltage >= 0;
+
+  const zeroLineY = yForVoltage(0);
 
   return (
-    <View style={styles.chartBox}>
-      <Text style={styles.yAxisTitle}>v(t)</Text>
-      <LineChart
-        data={data}
-        height={chartDimensions.height}
-        width={chartDimensions.width}
-        areaChart={false}
-        noOfSections={4}
-        noOfSectionsBelowXAxis={4}
-        curved={waveform == "sine"}
-        stepChart={waveform == "square"} // Enables the square/step wave effect
-        yAxisLabelTexts={yAxisLabelTexts}
-        hideDataPoints
-        thickness={3}
-        maxValue={yLimit}
-        mostNegativeValue={-yLimit}
-        color={pocketLabColors.orange}
-        initialSpacing={8}
-        endSpacing={8}
-        rulesType="dashed"
-        rulesColor={pocketLabColors.grid}
-        spacing={chartDimensions.width / (data.length + 2)}
-        curvature={0.3}
-      />
-      <Text style={styles.xAxisTitle}>t</Text>
-      <View style={styles.xLabels}>
-        {xLabels.map((seconds) => (
-          <Text key={seconds} style={styles.axisLabel}>
-            {formatTime(seconds)}
-          </Text>
+    <View style={styles.container}>
+      <Svg width={chartWidth} height={CHART_HEIGHT}>
+        <Defs>
+          <ClipPath id="waveform-clip">
+            <Rect x={LEFT_MARGIN} y={TOP_MARGIN} width={plotWidth} height={plotHeight} />
+          </ClipPath>
+        </Defs>
+
+        <Rect
+          x={LEFT_MARGIN}
+          y={TOP_MARGIN}
+          width={plotWidth}
+          height={plotHeight}
+          fill={pocketLabColors.surface}
+        />
+
+        {yTicks.map((tick, index) => (
+          <React.Fragment key={`y-${index}`}>
+            <Line
+              x1={LEFT_MARGIN}
+              y1={tick.y}
+              x2={LEFT_MARGIN + plotWidth}
+              y2={tick.y}
+              stroke={pocketLabColors.grid}
+              strokeWidth={1}
+              strokeDasharray="4 6"
+            />
+
+            <SvgText
+              x={LEFT_MARGIN - 8}
+              y={tick.y + 4}
+              textAnchor="end"
+              fontSize={11}
+              fill={pocketLabColors.mutedText}
+            >
+              {tick.label}
+            </SvgText>
+          </React.Fragment>
         ))}
-      </View>
+
+        {xTicks.map((tick, index) => (
+          <React.Fragment key={`x-${index}`}>
+            <Line
+              x1={tick.x}
+              y1={TOP_MARGIN}
+              x2={tick.x}
+              y2={TOP_MARGIN + plotHeight}
+              stroke={pocketLabColors.grid}
+              strokeWidth={1}
+              strokeDasharray="4 6"
+            />
+
+            <SvgText
+              x={tick.x}
+              y={TOP_MARGIN + plotHeight + 22}
+              textAnchor={
+                index === 0 ? "start" : index === X_TICK_COUNT - 1 ? "end" : "middle"
+              }
+              fontSize={11}
+              fill={pocketLabColors.mutedText}
+            >
+              {tick.label}
+            </SvgText>
+          </React.Fragment>
+        ))}
+
+        {zeroLineVisible ? (
+          <Line
+            x1={LEFT_MARGIN}
+            y1={zeroLineY}
+            x2={LEFT_MARGIN + plotWidth}
+            y2={zeroLineY}
+            stroke={pocketLabColors.mutedText}
+            strokeWidth={1.25}
+          />
+        ) : null}
+
+        <Line
+          x1={LEFT_MARGIN}
+          y1={TOP_MARGIN}
+          x2={LEFT_MARGIN}
+          y2={TOP_MARGIN + plotHeight}
+          stroke={pocketLabColors.mutedText}
+          strokeWidth={1.25}
+        />
+
+        <Line
+          x1={LEFT_MARGIN}
+          y1={TOP_MARGIN + plotHeight}
+          x2={LEFT_MARGIN + plotWidth}
+          y2={TOP_MARGIN + plotHeight}
+          stroke={pocketLabColors.mutedText}
+          strokeWidth={1.25}
+        />
+
+        <Path
+          d={waveformPath}
+          fill="none"
+          stroke={signalColor}
+          strokeWidth={3}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          clipPath="url(#waveform-clip)"
+        />
+
+        <SvgText
+          x={14}
+          y={TOP_MARGIN + 4}
+          fontSize={12}
+          fontWeight="700"
+          fill={pocketLabColors.mutedText}
+        >
+          V
+        </SvgText>
+
+        <SvgText
+          x={LEFT_MARGIN + plotWidth}
+          y={CHART_HEIGHT - 6}
+          textAnchor="end"
+          fontSize={12}
+          fontWeight="700"
+          fill={pocketLabColors.mutedText}
+        >
+          Time
+        </SvgText>
+      </Svg>
     </View>
   );
 }
 
-function formatTime(seconds: number) {
-  if (seconds === 0) return "0";
-  if (seconds < 1e-6) return `${(seconds * 1e9).toFixed(0)} ns`;
-  if (seconds < 1e-3) return `${(seconds * 1e6).toFixed(0)} µs`;
-  if (seconds < 1) return `${(seconds * 1e3).toFixed(2)} ms`;
-  return `${seconds.toFixed(3)} s`;
+function buildLinearPath(points: Point[]): string {
+  if (points.length === 0) {
+    return "";
+  }
+
+  return points
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+    )
+    .join(" ");
+}
+
+function buildStepPath(points: Point[]): string {
+  if (points.length === 0) {
+    return "";
+  }
+
+  const commands = [`M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`];
+
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+
+    commands.push(`L ${current.x.toFixed(2)} ${previous.y.toFixed(2)}`);
+
+    if (current.y !== previous.y) {
+      commands.push(`L ${current.x.toFixed(2)} ${current.y.toFixed(2)}`);
+    }
+  }
+
+  return commands.join(" ");
+}
+
+function formatVoltage(voltage: number): string {
+  const absolute = Math.abs(voltage);
+
+  if (absolute >= 10) {
+    return voltage.toFixed(1);
+  }
+
+  if (absolute >= 1) {
+    return voltage.toFixed(2);
+  }
+
+  return voltage.toFixed(2);
+}
+
+function formatTime(seconds: number): string {
+  if (seconds === 0) {
+    return "0";
+  }
+
+  if (seconds < 1e-6) {
+    return `${trimZeros((seconds * 1e9).toFixed(1))} ns`;
+  }
+
+  if (seconds < 1e-3) {
+    return `${trimZeros((seconds * 1e6).toFixed(1))} µs`;
+  }
+
+  if (seconds < 1) {
+    return `${trimZeros((seconds * 1e3).toFixed(1))} ms`;
+  }
+
+  return `${trimZeros(seconds.toFixed(2))} s`;
+}
+
+function trimZeros(value: string): string {
+  return value.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: 16,
-    padding: 14,
-    backgroundColor: pocketLabColors.surface,
-    gap: 10,
-    shadowColor: pocketLabColors.text,
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-  },
-  subtle: {
-    opacity: 0.6,
-  },
-  chartBox: {
-    position: "relative",
-    backgroundColor: pocketLabColors.surface,
+  container: {
     width: "100%",
     overflow: "hidden",
     borderRadius: 10,
-    paddingTop: 40,
-    paddingRight: 8,
-    paddingLeft: 18,
-    paddingBottom: 28,
-  },
-
-  yAxisTitle: {
-    position: "absolute",
-    top: 4,
-    left: 34,
-    color: pocketLabColors.darkTeal,
-    fontSize: 20,
-    fontStyle: "italic",
-    fontWeight: "700",
-    zIndex: 10,
-  },
-
-  xAxisTitle: {
-    position: "absolute",
-    right: 8,
-    bottom: 165,
-    fontStyle: "italic",
-    color: pocketLabColors.darkTeal,
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  yAxisLabel: {
-    color: pocketLabColors.darkTeal,
-    fontWeight: "700",
-    marginLeft: 10,
-  },
-  xLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginLeft: 42,
-    marginRight: 10,
-    marginTop: -4,
-  },
-
-  axisLabel: {
-    fontSize: 12,
-    color: pocketLabColors.mutedText,
-    minWidth: 30,
-  },
-  axisText: {
-    color: pocketLabColors.darkTeal,
-    fontSize: 10,
-  },
-  captionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 8,
-  },
-  caption: {
-    fontSize: 13,
-    color: pocketLabColors.darkTeal,
-  },
-  dot: {
-    color: pocketLabColors.darkTeal,
-    fontWeight: "700",
-  },
-  onText: {
-    color: pocketLabColors.darkGreen,
-    fontWeight: "700",
-  },
-  offText: {
-    color: pocketLabColors.mutedText,
-    fontWeight: "700",
+    backgroundColor: pocketLabColors.surface,
   },
 });
