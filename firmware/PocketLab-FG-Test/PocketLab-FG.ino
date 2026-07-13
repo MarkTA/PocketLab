@@ -16,7 +16,6 @@
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>
-#include <SPI.h>
 
 #include <cerrno>
 #include <cmath>
@@ -29,7 +28,7 @@
 
 constexpr char DEVICE_NAME[] = "PocketLab-FG";
 constexpr char MODEL_NAME[] = "PocketLab-FG";
-constexpr char FIRMWARE_VERSION[] = "0.3.2";
+constexpr char FIRMWARE_VERSION[] = "0.2.0";
 constexpr char HARDWARE_VERSION[] = "PROTO-1";
 
 // -----------------------------------------------------------------------------
@@ -61,10 +60,10 @@ enum class Waveform {
 };
 
 struct FunctionGeneratorState {
-    uint32_t frequencyHz = 0;
-    float amplitudeVpp = 0.0f;
+    uint32_t frequencyHz = 1000;
+    float amplitudeVpp = 0.65f;
     float offsetV = 0.0f;
-    Waveform waveform = Waveform::DC;
+    Waveform waveform = Waveform::Sine;
     bool outputEnabled = false;
 };
 
@@ -80,292 +79,6 @@ constexpr float MAX_AMPLITUDE_VPP = 5.0f;
 
 constexpr float MIN_OFFSET_V = -2.5f;
 constexpr float MAX_OFFSET_V = 2.5f;
-
-String waveformToString(Waveform waveform);
-
-// -----------------------------------------------------------------------------
-// AD9833 hardware
-// -----------------------------------------------------------------------------
-
-constexpr int AD9833_SCLK_PIN = 18;
-constexpr int AD9833_SDATA_PIN = 23;
-constexpr int AD9833_FSYNC_PIN = 5;
-
-constexpr double AD9833_MASTER_CLOCK_HZ = 25000000.0;
-constexpr uint32_t AD9833_SPI_CLOCK_HZ = 1000000;
-
-constexpr uint16_t AD9833_CONTROL_B28 = 0x2000;
-constexpr uint16_t AD9833_CONTROL_RESET = 0x0100;
-constexpr uint16_t AD9833_CONTROL_SLEEP1 = 0x0080;
-constexpr uint16_t AD9833_CONTROL_SLEEP12 = 0x0040;
-constexpr uint16_t AD9833_CONTROL_OPBITEN = 0x0020;
-constexpr uint16_t AD9833_CONTROL_DIV2 = 0x0008;
-constexpr uint16_t AD9833_CONTROL_MODE = 0x0002;
-
-constexpr uint16_t AD9833_FREQ0_REGISTER = 0x4000;
-constexpr uint16_t AD9833_PHASE0_REGISTER = 0xC000;
-
-bool ad9833Initialized = false;
-
-bool waveformSupportedByAd9833(Waveform waveform) {
-    return (
-        waveform == Waveform::Sine ||
-        waveform == Waveform::Triangle ||
-        waveform == Waveform::Square
-    );
-}
-
-void writeAd9833Word(uint16_t word) {
-    SPI.beginTransaction(
-        SPISettings(
-            AD9833_SPI_CLOCK_HZ,
-            MSBFIRST,
-            SPI_MODE2
-        )
-    );
-
-    digitalWrite(AD9833_FSYNC_PIN, LOW);
-    SPI.transfer16(word);
-    digitalWrite(AD9833_FSYNC_PIN, HIGH);
-
-    SPI.endTransaction();
-
-    Serial.printf(
-        "[AD9833] SPI write 0x%04X\n",
-        word
-    );
-}
-
-
-void disableAd9833Output() {
-    /*
-     * Clear OPBITEN so the 3.3 V digital square-wave path is disconnected,
-     * assert RESET, and power down both the internal clock and DAC.
-     *
-     * This is the safest software-only OFF state available from the AD9833.
-     * A later analog output switch will provide a guaranteed 0 V/high-Z output.
-     */
-    const uint16_t safeOffControl =
-        AD9833_CONTROL_B28 |
-        AD9833_CONTROL_RESET |
-        AD9833_CONTROL_SLEEP1 |
-        AD9833_CONTROL_SLEEP12;
-
-    writeAd9833Word(safeOffControl);
-
-    Serial.println(
-        "[AD9833] Output disabled (RESET + SLEEP1 + SLEEP12)"
-    );
-}
-
-uint16_t buildAd9833ControlWord(
-    Waveform waveform,
-    bool reset
-) {
-    uint16_t control = AD9833_CONTROL_B28;
-
-    if (reset) {
-        control |= AD9833_CONTROL_RESET;
-    }
-
-    switch (waveform) {
-        case Waveform::Sine:
-            break;
-
-        case Waveform::Triangle:
-            control |= AD9833_CONTROL_MODE;
-            break;
-
-        case Waveform::Square:
-            control |= (
-                AD9833_CONTROL_OPBITEN |
-                AD9833_CONTROL_DIV2
-            );
-            break;
-
-        case Waveform::RampUp:
-        case Waveform::RampDown:
-        case Waveform::DC:
-            break;
-    }
-
-    return control;
-}
-
-uint32_t calculateAd9833FrequencyWord(
-    uint32_t frequencyHz
-) {
-    const double tuningWord =
-        static_cast<double>(frequencyHz) *
-        268435456.0 /
-        AD9833_MASTER_CLOCK_HZ;
-
-    return static_cast<uint32_t>(
-        tuningWord + 0.5
-    );
-}
-
-void writeAd9833Frequency(
-    uint32_t frequencyHz
-) {
-    const uint32_t frequencyWord =
-        calculateAd9833FrequencyWord(
-            frequencyHz
-        );
-
-    const uint16_t lower14 =
-        static_cast<uint16_t>(
-            frequencyWord & 0x3FFF
-        );
-
-    const uint16_t upper14 =
-        static_cast<uint16_t>(
-            (frequencyWord >> 14) & 0x3FFF
-        );
-
-    writeAd9833Word(
-        AD9833_FREQ0_REGISTER | lower14
-    );
-
-    writeAd9833Word(
-        AD9833_FREQ0_REGISTER | upper14
-    );
-
-    Serial.printf(
-        "[AD9833] Frequency word 0x%07lX\n",
-        static_cast<unsigned long>(
-            frequencyWord
-        )
-    );
-}
-
-bool applyAd9833State(
-    const FunctionGeneratorState& state
-) {
-    if (!ad9833Initialized) {
-        Serial.println(
-            "[AD9833] Cannot apply state before initialization"
-        );
-
-        return false;
-    }
-
-    /*
-     * OFF is valid for every logical waveform, including the PocketLab idle
-     * state (DC, 0 Hz, 0 Vpp). Do not try to configure an unsupported waveform
-     * before powering the DDS down.
-     */
-    if (!state.outputEnabled) {
-        disableAd9833Output();
-
-        Serial.printf(
-            "[AD9833] Applied safe-off state; logical WAVE=%s;FREQ=%lu\n",
-            waveformToString(state.waveform).c_str(),
-            static_cast<unsigned long>(state.frequencyHz)
-        );
-
-        return true;
-    }
-
-    if (!waveformSupportedByAd9833(state.waveform)) {
-        Serial.printf(
-            "[AD9833] Unsupported active waveform: %s\n",
-            waveformToString(state.waveform).c_str()
-        );
-
-        return false;
-    }
-
-    if (
-        state.frequencyHz < MIN_FREQUENCY_HZ ||
-        state.frequencyHz > MAX_FREQUENCY_HZ
-    ) {
-        Serial.printf(
-            "[AD9833] Active frequency out of range: %lu Hz\n",
-            static_cast<unsigned long>(state.frequencyHz)
-        );
-
-        return false;
-    }
-
-    /*
-     * Hold the phase accumulator in reset while frequency and phase are
-     * updated, then release RESET to start generation.
-     */
-    writeAd9833Word(
-        buildAd9833ControlWord(
-            state.waveform,
-            true
-        )
-    );
-
-    writeAd9833Frequency(
-        state.frequencyHz
-    );
-
-    writeAd9833Word(
-        AD9833_PHASE0_REGISTER
-    );
-
-    writeAd9833Word(
-        buildAd9833ControlWord(
-            state.waveform,
-            false
-        )
-    );
-
-    Serial.printf(
-        "[AD9833] Applied FREQ=%lu;WAVE=%s;OUTPUT=ON\n",
-        static_cast<unsigned long>(state.frequencyHz),
-        waveformToString(state.waveform).c_str()
-    );
-
-    /*
-     * Amplitude and DC offset are stored in generatorState but cannot yet be
-     * applied by the AD9833 alone. They will be handled by the analog stage.
-     */
-    return true;
-}
-
-bool initializeAd9833() {
-    pinMode(
-        AD9833_FSYNC_PIN,
-        OUTPUT
-    );
-
-    digitalWrite(
-        AD9833_FSYNC_PIN,
-        HIGH
-    );
-
-    SPI.begin(
-        AD9833_SCLK_PIN,
-        -1,
-        AD9833_SDATA_PIN,
-        AD9833_FSYNC_PIN
-    );
-
-    delay(10);
-
-    ad9833Initialized = true;
-
-    /*
-     * The boot state is a logical PocketLab idle state:
-     *
-     *   WAVE=DC; FREQ=0; AMP=0; OFFSET=0; OUTPUT=OFF
-     *
-     * DC generation is not implemented in the AD9833 path, so initialize the
-     * DDS directly into its safe powered-down state instead of applying the
-     * logical state as an active waveform.
-     */
-    disableAd9833Output();
-
-    Serial.println(
-        "[AD9833] Hardware initialized in safe-off state"
-    );
-
-    return true;
-}
 
 // -----------------------------------------------------------------------------
 // BLE globals
@@ -648,29 +361,20 @@ void handleSetFrequency(const String& argument) {
         return;
     }
 
-    const bool validActiveFrequency =
-        frequencyHz >= MIN_FREQUENCY_HZ &&
-        frequencyHz <= MAX_FREQUENCY_HZ;
-
-    const bool validIdleFrequency =
-        frequencyHz == 0 &&
-        generatorState.waveform == Waveform::DC &&
-        !generatorState.outputEnabled;
-
-    if (!validActiveFrequency && !validIdleFrequency) {
+    if (
+        frequencyHz < MIN_FREQUENCY_HZ ||
+        frequencyHz > MAX_FREQUENCY_HZ
+    ) {
         sendError("FREQUENCY_OUT_OF_RANGE");
         return;
     }
 
-    FunctionGeneratorState pendingState = generatorState;
-    pendingState.frequencyHz = frequencyHz;
+    generatorState.frequencyHz = frequencyHz;
 
-    if (!applyAd9833State(pendingState)) {
-        sendError("HARDWARE_APPLY_FAILED");
-        return;
-    }
-
-    generatorState = pendingState;
+    /*
+     * TODO:
+     * Apply the frequency to the AD9833 here.
+     */
 
     Serial.printf(
         "[STATE] Frequency set to %lu Hz\n",
@@ -754,38 +458,12 @@ void handleSetWaveform(String argument) {
         return;
     }
 
-    FunctionGeneratorState pendingState = generatorState;
-    pendingState.waveform = waveform;
+    generatorState.waveform = waveform;
 
-    if (waveform == Waveform::DC) {
-        if (pendingState.outputEnabled) {
-            sendError("DC_OUTPUT_NOT_IMPLEMENTED");
-            return;
-        }
-
-        /*
-         * DC is currently the logical idle state. The future analog stage can
-         * implement actual DC output and user-selected offset.
-         */
-        pendingState.frequencyHz = 0;
-        pendingState.amplitudeVpp = 0.0f;
-    } else if (!waveformSupportedByAd9833(waveform)) {
-        sendError("UNSUPPORTED_WAVEFORM");
-        return;
-    } else if (pendingState.frequencyHz == 0) {
-        /*
-         * Give individual SET_WAVE commands a valid default frequency when
-         * leaving the idle DC state. SET_STATE remains the preferred command.
-         */
-        pendingState.frequencyHz = 1000;
-    }
-
-    if (!applyAd9833State(pendingState)) {
-        sendError("HARDWARE_APPLY_FAILED");
-        return;
-    }
-
-    generatorState = pendingState;
+    /*
+     * TODO:
+     * Apply the waveform selection to the AD9833 here.
+     */
 
     Serial.printf(
         "[STATE] Waveform set to %s\n",
@@ -868,7 +546,10 @@ void handleSetState(const String& argument) {
                 return;
             }
 
-            if (frequencyHz > MAX_FREQUENCY_HZ) {
+            if (
+                frequencyHz < MIN_FREQUENCY_HZ ||
+                frequencyHz > MAX_FREQUENCY_HZ
+            ) {
                 sendError("FREQUENCY_OUT_OF_RANGE");
                 return;
             }
@@ -960,44 +641,16 @@ void handleSetState(const String& argument) {
         return;
     }
 
-    if (pendingState.waveform == Waveform::DC) {
-        /*
-         * Until the analog output stage is implemented, DC is only a safe idle
-         * state and cannot be enabled as a physical output.
-         */
-        if (
-            pendingState.frequencyHz != 0 ||
-            pendingState.amplitudeVpp != 0.0f ||
-            pendingState.outputEnabled
-        ) {
-            sendError("INVALID_IDLE_STATE");
-            return;
-        }
-    } else {
-        if (!waveformSupportedByAd9833(pendingState.waveform)) {
-            sendError("UNSUPPORTED_WAVEFORM");
-            return;
-        }
-
-        if (
-            pendingState.frequencyHz < MIN_FREQUENCY_HZ ||
-            pendingState.frequencyHz > MAX_FREQUENCY_HZ
-        ) {
-            sendError("FREQUENCY_OUT_OF_RANGE");
-            return;
-        }
-    }
+    /*
+     * All fields have been parsed and validated. Apply them together so the
+     * device never enters a partially updated configuration.
+     */
+    generatorState = pendingState;
 
     /*
-     * Apply hardware before committing the state so a failed SPI update never
-     * leaves the reported state ahead of the physical generator.
+     * TODO:
+     * Apply generatorState to the AD9833 and analog output stage here.
      */
-    if (!applyAd9833State(pendingState)) {
-        sendError("HARDWARE_APPLY_FAILED");
-        return;
-    }
-
-    generatorState = pendingState;
 
     Serial.printf(
         "[STATE] Applied FREQ=%lu;AMP=%.2f;OFFSET=%.2f;WAVE=%s\n",
@@ -1013,41 +666,19 @@ void handleSetState(const String& argument) {
 void handleOutput(String argument) {
     argument.toUpperCase();
 
-    FunctionGeneratorState pendingState = generatorState;
-
     if (argument == "ON") {
-        if (generatorState.waveform == Waveform::DC) {
-            sendError("DC_OUTPUT_NOT_IMPLEMENTED");
-            return;
-        }
-
-        if (!waveformSupportedByAd9833(generatorState.waveform)) {
-            sendError("UNSUPPORTED_WAVEFORM");
-            return;
-        }
-
-        if (
-            generatorState.frequencyHz < MIN_FREQUENCY_HZ ||
-            generatorState.frequencyHz > MAX_FREQUENCY_HZ
-        ) {
-            sendError("FREQUENCY_OUT_OF_RANGE");
-            return;
-        }
-
-        pendingState.outputEnabled = true;
+        generatorState.outputEnabled = true;
     } else if (argument == "OFF") {
-        pendingState.outputEnabled = false;
+        generatorState.outputEnabled = false;
     } else {
         sendError("INVALID_OUTPUT_STATE");
         return;
     }
 
-    if (!applyAd9833State(pendingState)) {
-        sendError("HARDWARE_APPLY_FAILED");
-        return;
-    }
-
-    generatorState = pendingState;
+    /*
+     * TODO:
+     * Enable or disable the physical output here.
+     */
 
     Serial.printf(
         "[STATE] Output %s\n",
@@ -1235,14 +866,6 @@ public:
         responseNotificationsEnabled = false;
 
         /*
-         * Fail safe: a lost BLE connection must never leave the physical
-         * output running. This also clears square-wave OPBITEN, which would
-         * otherwise leave VOUT near 3.3 V while RESET is asserted.
-         */
-        generatorState.outputEnabled = false;
-        disableAd9833Output();
-
-        /*
          * Advertising restarts automatically because setup() calls:
          *
          * server->advertiseOnDisconnect(true);
@@ -1395,18 +1018,6 @@ void setup() {
     Serial.println("================================");
     Serial.println(" PocketLab BLE Command Server");
     Serial.println("================================");
-
-    // -------------------------------------------------------------------------
-    // Initialize AD9833
-    // -------------------------------------------------------------------------
-
-    if (!initializeAd9833()) {
-        Serial.println(
-            "[ERROR] Failed to initialize AD9833"
-        );
-
-        return;
-    }
 
     // -------------------------------------------------------------------------
     // Initialize NimBLE
