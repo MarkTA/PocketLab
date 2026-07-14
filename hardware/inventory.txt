@@ -1,0 +1,137 @@
+ADALP2000 Analog Parts Kit Inventory
+Kit part number: 240-000
+Source: Analog Devices ADALP2000
+Note: This inventory reflects the items visible in the two provided photographs.
+
+AMPLIFIERS
+1 x AD8226 - Instrumentation amplifier - Breakout board
+1 x ADTL082 - JFET operational amplifier - Breakout board
+1 x AD8542 - CMOS rail-to-rail operational amplifier - Breakout board
+2 x OP482 - High-speed JFET operational amplifier - 14-lead PDIP
+1 x OP484 - Precision rail-to-rail input/output operational amplifier - 14-lead PDIP
+2 x OP27 - Low-noise precision operational amplifier - 8-lead PDIP
+2 x OP37 - Precision operational amplifier - 8-lead PDIP
+2 x OP97 - Low-power, high-precision operational amplifier - 8-lead PDIP
+1 x LTC1541 - Micropower operational amplifier, comparator, and reference - Breakout board
+
+SENSORS
+1 x AD8210 - Current-shunt monitor - Breakout board
+1 x AD22151 - Magnetic-field sensor - Breakout board
+1 x ADXL327 - Three-axis accelerometer - Breakout board
+2 x AD22100 - Voltage-output temperature sensor - TO-92
+1 x AD592 - Current-output temperature sensor - TO-92
+1 x TMP01 - Temperature controller - 8-lead PDIP
+1 x Electret microphone
+1 x 10 kOhm thermistor
+1 x OP999 - PIN photodiode
+
+POWER COMPONENTS
+1 x ADP3300 - 3.3 V, 50 mA LDO linear regulator - Breakout board
+1 x LT3092 - Programmable current source - Breakout board
+1 x LTM8067 - Isolated DC-to-DC converter - Breakout board
+1 x LT3080 - Adjustable 1.1 A LDO regulator - TO-220
+1 x LT1054 - Switched-capacitor regulator - 8-lead PDIP
+
+DATA CONVERSION
+1 x AD654 - Voltage-to-frequency converter - 8-lead PDIP
+1 x AD5626 - 12-bit nanoDAC+ - Breakout board
+1 x AD7920 - 12-bit, 250 kSPS SPI ADC - Breakout board
+
+MISCELLANEOUS INTEGRATED CIRCUITS
+1 x AD584 - Programmable voltage reference - 8-lead PDIP
+2 x AD8561 - Comparator - 8-lead PDIP
+1 x LTC1485 - Differential bus transceiver - 8-lead PDIP
+1 x LTC1043 - Precision switched-capacitor building block - 8-lead PDIP
+
+TRANSISTORS AND MOSFETS
+3 x 2N3904 - Small-signal NPN transistor
+3 x 2N3906 - Small-signal PNP transistor
+1 x IRF510 - Power MOSFET
+1 x TIP31CFS - NPN power transistor
+1 x TIP32CFS - PNP power transistor
+1 x ZVN2110A - N-channel DMOS FET
+2 x ZVN3310 - N-channel MOSFET
+2 x ZVP2110A - P-channel MOSFET
+
+LOGIC ICS
+1 x SN74HC08 - Quad AND gate - 14-lead PDIP
+1 x SN74HC32 - Quad OR gate - 14-lead PDIP
+1 x SN74HC273 - Octal flip-flop
+1 x SN74HC04 - Hex inverter - 14-lead PDIP
+
+Note: The printed card appears to describe the SN74HC273 as a 14-lead PDIP, but this part is normally supplied in a larger package. Check the physical IC before relying on the package description.
+
+DIODES
+1 x 1N3064 - Small-signal diode
+1 x 1N4001 - General-purpose rectifier
+1 x 1N4735 - 1 W Zener diode
+4 x 1N914 - Fast-switching diode
+
+LEDS AND INFRARED COMPONENTS
+2 x Green LED
+2 x Yellow LED
+2 x Red LED
+1 x QED123 - Infrared LED
+1 x QSD123 - Infrared phototransistor
+
+POTENTIOMETERS
+1 x 5 kOhm
+2 x 10 kOhm
+1 x 50 kOhm
+
+RESISTORS
+5 x 1.1 Ohm
+5 x 10 Ohm
+5 x 47 Ohm
+5 x 68 Ohm
+5 x 100 Ohm
+5 x 470 Ohm
+5 x 1 kOhm
+5 x 1.5 kOhm
+5 x 2.2 kOhm
+5 x 4.7 kOhm
+5 x 6.8 kOhm
+5 x 10 kOhm
+5 x 20 kOhm
+5 x 47 kOhm
+5 x 68 kOhm
+5 x 100 kOhm
+5 x 200 kOhm
+5 x 470 kOhm
+5 x 1 MOhm
+5 x 5 MOhm
+1 x 6.2 Ohm, 10 W power resistor
+
+CAPACITORS
+2 x 39 pF
+2 x 100 pF
+2 x 0.001 uF
+2 x 0.0047 uF
+2 x 0.01 uF
+2 x 0.047 uF
+2 x 0.1 uF
+2 x 1 uF
+2 x 4.7 uF
+2 x 10 uF
+2 x 22 uF
+2 x 47 uF
+1 x 220 uF
+
+INDUCTORS AND MAGNETICS
+2 x RFB0807-1R0L - 1.0 uH
+2 x RFB0807-100L - 10 uH
+2 x RFB0807-101L - 100 uH
+2 x RFB0807-102L - 1 mH
+2 x RFB0807-103L - 10 mH
+1 x HPH1-1400L - Hexa-Path magnetics - Breakout board
+1 x HPH1-0190L - Hexa-Path magnetics - Breakout board
+
+OTHER HARDWARE
+1 x Speaker
+1 x Solderless breadboard
+1 x Flathead screwdriver
+1 x USB connector breakout board
+1 x Audio connector breakout board
+45 x Jumper wires with pin ends
+
+BOB = breakout board for a surface-mount device.

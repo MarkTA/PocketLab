@@ -16,7 +16,7 @@
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>
-#include <SPI.h>
+#include "Ad9833Driver.h"
 
 #include <cerrno>
 #include <cmath>
@@ -29,7 +29,7 @@
 
 constexpr char DEVICE_NAME[] = "PocketLab-FG";
 constexpr char MODEL_NAME[] = "PocketLab-FG";
-constexpr char FIRMWARE_VERSION[] = "0.3.2";
+constexpr char FIRMWARE_VERSION[] = "0.3.3";
 constexpr char HARDWARE_VERSION[] = "PROTO-1";
 
 // -----------------------------------------------------------------------------
@@ -50,15 +50,6 @@ constexpr char RESPONSE_TX_UUID[] =
 // -----------------------------------------------------------------------------
 // Function-generator state
 // -----------------------------------------------------------------------------
-
-enum class Waveform {
-    Sine,
-    Square,
-    Triangle,
-    RampUp,
-    RampDown,
-    DC
-};
 
 struct FunctionGeneratorState {
     uint32_t frequencyHz = 0;
@@ -91,172 +82,28 @@ constexpr int AD9833_SCLK_PIN = 18;
 constexpr int AD9833_SDATA_PIN = 23;
 constexpr int AD9833_FSYNC_PIN = 5;
 
-constexpr double AD9833_MASTER_CLOCK_HZ = 25000000.0;
-constexpr uint32_t AD9833_SPI_CLOCK_HZ = 1000000;
-
-constexpr uint16_t AD9833_CONTROL_B28 = 0x2000;
-constexpr uint16_t AD9833_CONTROL_RESET = 0x0100;
-constexpr uint16_t AD9833_CONTROL_SLEEP1 = 0x0080;
-constexpr uint16_t AD9833_CONTROL_SLEEP12 = 0x0040;
-constexpr uint16_t AD9833_CONTROL_OPBITEN = 0x0020;
-constexpr uint16_t AD9833_CONTROL_DIV2 = 0x0008;
-constexpr uint16_t AD9833_CONTROL_MODE = 0x0002;
-
-constexpr uint16_t AD9833_FREQ0_REGISTER = 0x4000;
-constexpr uint16_t AD9833_PHASE0_REGISTER = 0xC000;
-
-bool ad9833Initialized = false;
+Ad9833Driver ad9833(
+    AD9833_SCLK_PIN,
+    AD9833_SDATA_PIN,
+    AD9833_FSYNC_PIN
+);
 
 bool waveformSupportedByAd9833(Waveform waveform) {
-    return (
-        waveform == Waveform::Sine ||
-        waveform == Waveform::Triangle ||
-        waveform == Waveform::Square
-    );
-}
-
-void writeAd9833Word(uint16_t word) {
-    SPI.beginTransaction(
-        SPISettings(
-            AD9833_SPI_CLOCK_HZ,
-            MSBFIRST,
-            SPI_MODE2
-        )
-    );
-
-    digitalWrite(AD9833_FSYNC_PIN, LOW);
-    SPI.transfer16(word);
-    digitalWrite(AD9833_FSYNC_PIN, HIGH);
-
-    SPI.endTransaction();
-
-    Serial.printf(
-        "[AD9833] SPI write 0x%04X\n",
-        word
-    );
-}
-
-
-void disableAd9833Output() {
-    /*
-     * Clear OPBITEN so the 3.3 V digital square-wave path is disconnected,
-     * assert RESET, and power down both the internal clock and DAC.
-     *
-     * This is the safest software-only OFF state available from the AD9833.
-     * A later analog output switch will provide a guaranteed 0 V/high-Z output.
-     */
-    const uint16_t safeOffControl =
-        AD9833_CONTROL_B28 |
-        AD9833_CONTROL_RESET |
-        AD9833_CONTROL_SLEEP1 |
-        AD9833_CONTROL_SLEEP12;
-
-    writeAd9833Word(safeOffControl);
-
-    Serial.println(
-        "[AD9833] Output disabled (RESET + SLEEP1 + SLEEP12)"
-    );
-}
-
-uint16_t buildAd9833ControlWord(
-    Waveform waveform,
-    bool reset
-) {
-    uint16_t control = AD9833_CONTROL_B28;
-
-    if (reset) {
-        control |= AD9833_CONTROL_RESET;
-    }
-
-    switch (waveform) {
-        case Waveform::Sine:
-            break;
-
-        case Waveform::Triangle:
-            control |= AD9833_CONTROL_MODE;
-            break;
-
-        case Waveform::Square:
-            control |= (
-                AD9833_CONTROL_OPBITEN |
-                AD9833_CONTROL_DIV2
-            );
-            break;
-
-        case Waveform::RampUp:
-        case Waveform::RampDown:
-        case Waveform::DC:
-            break;
-    }
-
-    return control;
-}
-
-uint32_t calculateAd9833FrequencyWord(
-    uint32_t frequencyHz
-) {
-    const double tuningWord =
-        static_cast<double>(frequencyHz) *
-        268435456.0 /
-        AD9833_MASTER_CLOCK_HZ;
-
-    return static_cast<uint32_t>(
-        tuningWord + 0.5
-    );
-}
-
-void writeAd9833Frequency(
-    uint32_t frequencyHz
-) {
-    const uint32_t frequencyWord =
-        calculateAd9833FrequencyWord(
-            frequencyHz
-        );
-
-    const uint16_t lower14 =
-        static_cast<uint16_t>(
-            frequencyWord & 0x3FFF
-        );
-
-    const uint16_t upper14 =
-        static_cast<uint16_t>(
-            (frequencyWord >> 14) & 0x3FFF
-        );
-
-    writeAd9833Word(
-        AD9833_FREQ0_REGISTER | lower14
-    );
-
-    writeAd9833Word(
-        AD9833_FREQ0_REGISTER | upper14
-    );
-
-    Serial.printf(
-        "[AD9833] Frequency word 0x%07lX\n",
-        static_cast<unsigned long>(
-            frequencyWord
-        )
-    );
+    return waveform == Waveform::Sine ||
+           waveform == Waveform::Triangle ||
+           waveform == Waveform::Square;
 }
 
 bool applyAd9833State(
     const FunctionGeneratorState& state
 ) {
-    if (!ad9833Initialized) {
-        Serial.println(
-            "[AD9833] Cannot apply state before initialization"
-        );
-
-        return false;
-    }
-
     /*
      * OFF is valid for every logical waveform, including the PocketLab idle
      * state (DC, 0 Hz, 0 Vpp). Do not try to configure an unsupported waveform
      * before powering the DDS down.
      */
     if (!state.outputEnabled) {
-        disableAd9833Output();
+        ad9833.stop();
 
         Serial.printf(
             "[AD9833] Applied safe-off state; logical WAVE=%s;FREQ=%lu\n",
@@ -288,31 +135,9 @@ bool applyAd9833State(
         return false;
     }
 
-    /*
-     * Hold the phase accumulator in reset while frequency and phase are
-     * updated, then release RESET to start generation.
-     */
-    writeAd9833Word(
-        buildAd9833ControlWord(
-            state.waveform,
-            true
-        )
-    );
-
-    writeAd9833Frequency(
-        state.frequencyHz
-    );
-
-    writeAd9833Word(
-        AD9833_PHASE0_REGISTER
-    );
-
-    writeAd9833Word(
-        buildAd9833ControlWord(
-            state.waveform,
-            false
-        )
-    );
+    if (!ad9833.apply(state.frequencyHz, state.waveform)) {
+        return false;
+    }
 
     Serial.printf(
         "[AD9833] Applied FREQ=%lu;WAVE=%s;OUTPUT=ON\n",
@@ -324,46 +149,6 @@ bool applyAd9833State(
      * Amplitude and DC offset are stored in generatorState but cannot yet be
      * applied by the AD9833 alone. They will be handled by the analog stage.
      */
-    return true;
-}
-
-bool initializeAd9833() {
-    pinMode(
-        AD9833_FSYNC_PIN,
-        OUTPUT
-    );
-
-    digitalWrite(
-        AD9833_FSYNC_PIN,
-        HIGH
-    );
-
-    SPI.begin(
-        AD9833_SCLK_PIN,
-        -1,
-        AD9833_SDATA_PIN,
-        AD9833_FSYNC_PIN
-    );
-
-    delay(10);
-
-    ad9833Initialized = true;
-
-    /*
-     * The boot state is a logical PocketLab idle state:
-     *
-     *   WAVE=DC; FREQ=0; AMP=0; OFFSET=0; OUTPUT=OFF
-     *
-     * DC generation is not implemented in the AD9833 path, so initialize the
-     * DDS directly into its safe powered-down state instead of applying the
-     * logical state as an active waveform.
-     */
-    disableAd9833Output();
-
-    Serial.println(
-        "[AD9833] Hardware initialized in safe-off state"
-    );
-
     return true;
 }
 
@@ -1240,7 +1025,7 @@ public:
          * otherwise leave VOUT near 3.3 V while RESET is asserted.
          */
         generatorState.outputEnabled = false;
-        disableAd9833Output();
+        ad9833.stop();
 
         /*
          * Advertising restarts automatically because setup() calls:
@@ -1400,7 +1185,7 @@ void setup() {
     // Initialize AD9833
     // -------------------------------------------------------------------------
 
-    if (!initializeAd9833()) {
+    if (!ad9833.begin()) {
         Serial.println(
             "[ERROR] Failed to initialize AD9833"
         );
