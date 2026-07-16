@@ -17,6 +17,8 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include "Ad9833Driver.h"
+#include "Ad5626Driver.h"
+#include "X9c103sDriver.h"
 
 #include <cerrno>
 #include <cmath>
@@ -29,7 +31,7 @@
 
 constexpr char DEVICE_NAME[] = "PocketLab-FG";
 constexpr char MODEL_NAME[] = "PocketLab-FG";
-constexpr char FIRMWARE_VERSION[] = "0.3.3";
+constexpr char FIRMWARE_VERSION[] = "0.5.3";
 constexpr char HARDWARE_VERSION[] = "PROTO-1";
 
 // -----------------------------------------------------------------------------
@@ -67,10 +69,17 @@ constexpr uint32_t MIN_FREQUENCY_HZ = 1;
 constexpr uint32_t MAX_FREQUENCY_HZ = 1000000;
 
 constexpr float MIN_AMPLITUDE_VPP = 0.0f;
-constexpr float MAX_AMPLITUDE_VPP = 5.0f;
+constexpr float MAX_AMPLITUDE_VPP = 4.15f;
 
-constexpr float MIN_OFFSET_V = -2.5f;
-constexpr float MAX_OFFSET_V = 2.5f;
+/*
+ * Interim unipolar output limits. OFFSET is the waveform center voltage
+ * relative to ground. These limits will be revised when the bipolar supply
+ * and output stage are installed.
+ */
+constexpr float MIN_OFFSET_V = 0.0f;
+constexpr float MAX_OFFSET_V = 4.089f;
+constexpr float MIN_ACTIVE_OUTPUT_V = 0.20f;
+constexpr float MAX_ACTIVE_OUTPUT_V = 4.40f;
 
 String waveformToString(Waveform waveform);
 
@@ -88,29 +97,247 @@ Ad9833Driver ad9833(
     AD9833_FSYNC_PIN
 );
 
+// -----------------------------------------------------------------------------
+// AD5626 offset control
+// -----------------------------------------------------------------------------
+
+constexpr int AD5626_CS_PIN = 32;
+constexpr int AD5626_LDAC_PIN = 33;
+
+Ad5626Driver ad5626(
+    AD5626_CS_PIN,
+    AD5626_LDAC_PIN,
+    AD9833_SCLK_PIN,
+    AD9833_SDATA_PIN,
+    AD9833_FSYNC_PIN
+);
+
+// -----------------------------------------------------------------------------
+// X9C103S amplitude control
+// -----------------------------------------------------------------------------
+
+constexpr int X9C_CS_PIN = 25;
+constexpr int X9C_INC_PIN = 26;
+constexpr int X9C_UD_PIN = 27;
+constexpr uint32_t SAFE_STOP_SETTLE_MS = 25;
+constexpr uint32_t OFFSET_REBIAS_SETTLE_MS = 2000;
+
+X9c103sDriver x9c(
+    X9C_CS_PIN,
+    X9C_INC_PIN,
+    X9C_UD_PIN
+);
+
+struct OffsetTransitionState {
+    bool active = false;
+    uint32_t restoreAtMs = 0;
+};
+
+OffsetTransitionState offsetTransition;
+
+struct AmplitudeCalibrationPoint {
+    float outputVpp;
+    int position;
+};
+
+/*
+ * Calibration measured at 1 kHz with the current fixed-gain OP484 stage.
+ * Intermediate requested amplitudes are mapped by linear interpolation.
+ */
+constexpr AmplitudeCalibrationPoint AMPLITUDE_CALIBRATION[] = {
+    {0.0000f, 0},
+    {1.2257f, 8},
+    {2.3481f, 16},
+    {3.2390f, 23},
+    {4.1548f, 31}
+};
+
+constexpr size_t AMPLITUDE_CALIBRATION_COUNT =
+    sizeof(AMPLITUDE_CALIBRATION) /
+    sizeof(AMPLITUDE_CALIBRATION[0]);
+
+int amplitudeToX9cPosition(float amplitudeVpp) {
+    if (amplitudeVpp <= AMPLITUDE_CALIBRATION[0].outputVpp) {
+        return AMPLITUDE_CALIBRATION[0].position;
+    }
+
+    for (size_t index = 1; index < AMPLITUDE_CALIBRATION_COUNT; ++index) {
+        const AmplitudeCalibrationPoint& lower =
+            AMPLITUDE_CALIBRATION[index - 1];
+        const AmplitudeCalibrationPoint& upper =
+            AMPLITUDE_CALIBRATION[index];
+
+        if (amplitudeVpp <= upper.outputVpp) {
+            const float fraction =
+                (amplitudeVpp - lower.outputVpp) /
+                (upper.outputVpp - lower.outputVpp);
+
+            const float interpolatedPosition =
+                lower.position +
+                fraction * (upper.position - lower.position);
+
+            return constrain(
+                static_cast<int>(lroundf(interpolatedPosition)),
+                0,
+                X9c103sDriver::MAX_POSITION
+            );
+        }
+    }
+
+    return X9c103sDriver::MAX_POSITION;
+}
+
+void applyAmplitude(float amplitudeVpp) {
+    const int position = amplitudeToX9cPosition(amplitudeVpp);
+    x9c.setPosition(position);
+
+    Serial.printf(
+        "[X9C] Requested amplitude %.2f Vpp mapped to position %d/%d\n",
+        amplitudeVpp,
+        position,
+        X9c103sDriver::MAX_POSITION
+    );
+}
+
 bool waveformSupportedByAd9833(Waveform waveform) {
     return waveform == Waveform::Sine ||
            waveform == Waveform::Triangle ||
            waveform == Waveform::Square;
 }
 
+bool stateFitsUnipolarOutputEnvelope(
+    const FunctionGeneratorState& state
+) {
+    if (!state.outputEnabled) {
+        return true;
+    }
+
+    if (state.waveform == Waveform::DC) {
+        return state.amplitudeVpp == 0.0f &&
+               state.offsetV >= MIN_OFFSET_V &&
+               state.offsetV <= MAX_OFFSET_V;
+    }
+
+    const float halfAmplitude = state.amplitudeVpp * 0.5f;
+    const float minimumOutput = state.offsetV - halfAmplitude;
+    const float maximumOutput = state.offsetV + halfAmplitude;
+
+    return minimumOutput >= MIN_ACTIVE_OUTPUT_V &&
+           maximumOutput <= MAX_ACTIVE_OUTPUT_V;
+}
+
+void applyOffset(float offsetV) {
+    const uint16_t code = ad5626.writeVoltage(offsetV);
+
+    Serial.printf(
+        "[AD5626] OFFSET=%.3f V;CODE=%u;CALCULATED=%.4f V\n",
+        offsetV,
+        code,
+        ad5626.currentVoltage()
+    );
+}
+
+void cancelOffsetTransition(const char* reason) {
+    if (!offsetTransition.active) {
+        return;
+    }
+
+    offsetTransition.active = false;
+    Serial.printf("[OFFSET] Transition cancelled: %s\n", reason);
+}
+
+void beginOffsetTransition(float offsetV) {
+    // Verified hardware sequence: mute, change bias, allow the 47 uF
+    // coupling capacitor to rebias, then restore the requested amplitude.
+    x9c.forceToVL();
+    applyOffset(offsetV);
+
+    offsetTransition.active = true;
+    offsetTransition.restoreAtMs =
+        millis() + OFFSET_REBIAS_SETTLE_MS;
+
+    Serial.printf(
+        "[OFFSET] Output muted; rebiasing for %lu ms\n",
+        static_cast<unsigned long>(OFFSET_REBIAS_SETTLE_MS)
+    );
+}
+
+void serviceOffsetTransition() {
+    if (!offsetTransition.active) {
+        return;
+    }
+
+    if (
+        static_cast<int32_t>(
+            millis() - offsetTransition.restoreAtMs
+        ) < 0
+    ) {
+        return;
+    }
+
+    offsetTransition.active = false;
+
+    if (
+        generatorState.outputEnabled &&
+        generatorState.waveform != Waveform::DC
+    ) {
+        applyAmplitude(generatorState.amplitudeVpp);
+
+        Serial.printf(
+            "[OFFSET] Rebias complete; restored %.2f Vpp\n",
+            generatorState.amplitudeVpp
+        );
+    } else {
+        x9c.forceToVL();
+        Serial.println(
+            "[OFFSET] Rebias complete; output remains muted"
+        );
+    }
+}
+
 bool applyAd9833State(
     const FunctionGeneratorState& state
 ) {
+    cancelOffsetTransition("complete hardware state applied");
+
     /*
      * OFF is valid for every logical waveform, including the PocketLab idle
      * state (DC, 0 Hz, 0 Vpp). Do not try to configure an unsupported waveform
      * before powering the DDS down.
      */
     if (!state.outputEnabled) {
+        x9c.forceToVL();
+        delay(SAFE_STOP_SETTLE_MS);
         ad9833.stop();
+        ad5626.clear();
 
         Serial.printf(
-            "[AD9833] Applied safe-off state; logical WAVE=%s;FREQ=%lu\n",
+            "[SAFE] Applied 0 V safe-off; logical WAVE=%s;FREQ=%lu\n",
             waveformToString(state.waveform).c_str(),
             static_cast<unsigned long>(state.frequencyHz)
         );
 
+        return true;
+    }
+
+    if (!stateFitsUnipolarOutputEnvelope(state)) {
+        Serial.printf(
+            "[OUTPUT] Invalid envelope: OFFSET=%.3f V;AMP=%.3f Vpp\n",
+            state.offsetV,
+            state.amplitudeVpp
+        );
+        return false;
+    }
+
+    if (state.waveform == Waveform::DC) {
+        x9c.forceToVL();
+        ad9833.stop();
+        applyOffset(state.offsetV);
+
+        Serial.printf(
+            "[AD5626] Applied DC output %.3f V\n",
+            state.offsetV
+        );
         return true;
     }
 
@@ -135,7 +362,12 @@ bool applyAd9833State(
         return false;
     }
 
+    // Establish bias and amplitude before starting the DDS.
+    applyOffset(state.offsetV);
+    applyAmplitude(state.amplitudeVpp);
+
     if (!ad9833.apply(state.frequencyHz, state.waveform)) {
+        x9c.forceToVL();
         return false;
     }
 
@@ -145,10 +377,6 @@ bool applyAd9833State(
         waveformToString(state.waveform).c_str()
     );
 
-    /*
-     * Amplitude and DC offset are stored in generatorState but cannot yet be
-     * applied by the AD9833 alone. They will be handled by the analog stage.
-     */
     return true;
 }
 
@@ -483,12 +711,22 @@ void handleSetAmplitude(const String& argument) {
         return;
     }
 
-    generatorState.amplitudeVpp = amplitudeVpp;
+    FunctionGeneratorState pendingState = generatorState;
+    pendingState.amplitudeVpp = amplitudeVpp;
 
-    /*
-     * TODO:
-     * Apply the amplitude to the analog output stage here.
-     */
+    if (
+        pendingState.outputEnabled &&
+        !stateFitsUnipolarOutputEnvelope(pendingState)
+    ) {
+        sendError("AMPLITUDE_OFFSET_OUT_OF_RANGE");
+        return;
+    }
+
+    if (pendingState.outputEnabled) {
+        applyAmplitude(amplitudeVpp);
+    }
+
+    generatorState = pendingState;
 
     Serial.printf(
         "[STATE] Amplitude set to %.2f Vpp\n",
@@ -514,12 +752,26 @@ void handleSetOffset(const String& argument) {
         return;
     }
 
-    generatorState.offsetV = offsetV;
+    FunctionGeneratorState pendingState = generatorState;
+    pendingState.offsetV = offsetV;
 
-    /*
-     * TODO:
-     * Apply the DC offset to the analog output stage here.
-     */
+    if (
+        pendingState.outputEnabled &&
+        !stateFitsUnipolarOutputEnvelope(pendingState)
+    ) {
+        sendError("AMPLITUDE_OFFSET_OUT_OF_RANGE");
+        return;
+    }
+
+    if (pendingState.outputEnabled) {
+        if (pendingState.waveform == Waveform::DC) {
+            applyOffset(offsetV);
+        } else {
+            beginOffsetTransition(offsetV);
+        }
+    }
+
+    generatorState = pendingState;
 
     Serial.printf(
         "[STATE] Offset set to %.2f V\n",
@@ -543,15 +795,6 @@ void handleSetWaveform(String argument) {
     pendingState.waveform = waveform;
 
     if (waveform == Waveform::DC) {
-        if (pendingState.outputEnabled) {
-            sendError("DC_OUTPUT_NOT_IMPLEMENTED");
-            return;
-        }
-
-        /*
-         * DC is currently the logical idle state. The future analog stage can
-         * implement actual DC output and user-selected offset.
-         */
         pendingState.frequencyHz = 0;
         pendingState.amplitudeVpp = 0.0f;
     } else if (!waveformSupportedByAd9833(waveform)) {
@@ -746,16 +989,11 @@ void handleSetState(const String& argument) {
     }
 
     if (pendingState.waveform == Waveform::DC) {
-        /*
-         * Until the analog output stage is implemented, DC is only a safe idle
-         * state and cannot be enabled as a physical output.
-         */
         if (
             pendingState.frequencyHz != 0 ||
-            pendingState.amplitudeVpp != 0.0f ||
-            pendingState.outputEnabled
+            pendingState.amplitudeVpp != 0.0f
         ) {
-            sendError("INVALID_IDLE_STATE");
+            sendError("INVALID_DC_STATE");
             return;
         }
     } else {
@@ -773,13 +1011,81 @@ void handleSetState(const String& argument) {
         }
     }
 
-    /*
-     * Apply hardware before committing the state so a failed SPI update never
-     * leaves the reported state ahead of the physical generator.
-     */
-    if (!applyAd9833State(pendingState)) {
-        sendError("HARDWARE_APPLY_FAILED");
+    const bool ddsConfigurationChanged =
+        pendingState.frequencyHz != generatorState.frequencyHz ||
+        pendingState.waveform != generatorState.waveform;
+
+    const bool amplitudeChanged =
+        fabsf(
+            pendingState.amplitudeVpp - generatorState.amplitudeVpp
+        ) > 0.0005f;
+
+    const bool offsetChanged =
+        fabsf(
+            pendingState.offsetV - generatorState.offsetV
+        ) > 0.0005f;
+
+    if (
+        pendingState.outputEnabled &&
+        !stateFitsUnipolarOutputEnvelope(pendingState)
+    ) {
+        sendError("AMPLITUDE_OFFSET_OUT_OF_RANGE");
         return;
+    }
+
+    /*
+     * SET_STATE is also used by the app for amplitude-slider updates. Avoid
+     * restarting the AD9833 when only amplitude or the future offset setting
+     * changed. Restarting the DDS unnecessarily creates a transient across
+     * the AC-coupling capacitor.
+     *
+     * When output is off, retain the requested settings logically and leave
+     * the physical path in its existing safe-off state. OUTPUT ON applies the
+     * complete requested state later.
+     */
+    if (pendingState.outputEnabled) {
+        if (
+            offsetChanged &&
+            pendingState.waveform != Waveform::DC
+        ) {
+            beginOffsetTransition(pendingState.offsetV);
+
+            /*
+             * If frequency or waveform changed in the same SET_STATE, update
+             * the DDS while the amplitude path is muted. Do not use
+             * applyAd9833State() here because it would restore amplitude
+             * before the rebias interval has elapsed.
+             */
+            if (
+                ddsConfigurationChanged &&
+                !ad9833.apply(
+                    pendingState.frequencyHz,
+                    pendingState.waveform
+                )
+            ) {
+                cancelOffsetTransition("DDS apply failed");
+                x9c.forceToVL();
+                sendError("HARDWARE_APPLY_FAILED");
+                return;
+            }
+
+            Serial.println(
+                "[STATE] Offset update started; AD9833 remains running"
+            );
+        } else if (ddsConfigurationChanged) {
+            if (!applyAd9833State(pendingState)) {
+                sendError("HARDWARE_APPLY_FAILED");
+                return;
+            }
+        } else if (amplitudeChanged || offsetChanged) {
+            if (amplitudeChanged) {
+                applyAmplitude(pendingState.amplitudeVpp);
+            }
+
+            Serial.println(
+                "[STATE] Analog-only update; AD9833 left running"
+            );
+        }
     }
 
     generatorState = pendingState;
@@ -801,25 +1107,31 @@ void handleOutput(String argument) {
     FunctionGeneratorState pendingState = generatorState;
 
     if (argument == "ON") {
-        if (generatorState.waveform == Waveform::DC) {
-            sendError("DC_OUTPUT_NOT_IMPLEMENTED");
-            return;
-        }
-
-        if (!waveformSupportedByAd9833(generatorState.waveform)) {
+        if (
+            generatorState.waveform != Waveform::DC &&
+            !waveformSupportedByAd9833(generatorState.waveform)
+        ) {
             sendError("UNSUPPORTED_WAVEFORM");
             return;
         }
 
         if (
-            generatorState.frequencyHz < MIN_FREQUENCY_HZ ||
-            generatorState.frequencyHz > MAX_FREQUENCY_HZ
+            generatorState.waveform != Waveform::DC &&
+            (
+                generatorState.frequencyHz < MIN_FREQUENCY_HZ ||
+                generatorState.frequencyHz > MAX_FREQUENCY_HZ
+            )
         ) {
             sendError("FREQUENCY_OUT_OF_RANGE");
             return;
         }
 
         pendingState.outputEnabled = true;
+
+        if (!stateFitsUnipolarOutputEnvelope(pendingState)) {
+            sendError("AMPLITUDE_OFFSET_OUT_OF_RANGE");
+            return;
+        }
     } else if (argument == "OFF") {
         pendingState.outputEnabled = false;
     } else {
@@ -865,6 +1177,21 @@ void processCommand(String command) {
         "[RX] %s\n",
         command.c_str()
     );
+
+    /*
+     * Keep the verified transition atomic. Read-only commands and emergency
+     * OUTPUT OFF remain available while the capacitor is rebiasing.
+     */
+    if (
+        offsetTransition.active &&
+        commandName != "PING" &&
+        commandName != "INFO" &&
+        commandName != "GET_STATE" &&
+        !(commandName == "OUTPUT" && argument.equalsIgnoreCase("OFF"))
+    ) {
+        sendError("OFFSET_TRANSITION_BUSY");
+        return;
+    }
 
     // -------------------------------------------------------------------------
     // Commands without arguments
@@ -1025,7 +1352,11 @@ public:
          * otherwise leave VOUT near 3.3 V while RESET is asserted.
          */
         generatorState.outputEnabled = false;
+        cancelOffsetTransition("BLE disconnect");
+        x9c.forceToVL();
+        delay(SAFE_STOP_SETTLE_MS);
         ad9833.stop();
+        ad5626.clear();
 
         /*
          * Advertising restarts automatically because setup() calls:
@@ -1182,7 +1513,13 @@ void setup() {
     Serial.println("================================");
 
     // -------------------------------------------------------------------------
-    // Initialize AD9833
+    // Initialize X9C103S in its safe minimum-amplitude state
+    // -------------------------------------------------------------------------
+
+    x9c.begin();
+
+    // -------------------------------------------------------------------------
+    // Initialize AD9833 and the shared hardware SPI bus
     // -------------------------------------------------------------------------
 
     if (!ad9833.begin()) {
@@ -1192,6 +1529,14 @@ void setup() {
 
         return;
     }
+
+    // -------------------------------------------------------------------------
+    // Initialize AD5626 in its calibrated 0 V safe state
+    //
+    // The DAC shares the hardware SPI bus initialized by the AD9833 driver.
+    // -------------------------------------------------------------------------
+
+    ad5626.begin();
 
     // -------------------------------------------------------------------------
     // Initialize NimBLE
@@ -1377,11 +1722,6 @@ void setup() {
 // -----------------------------------------------------------------------------
 
 void loop() {
-    /*
-     * BLE work is currently callback-driven.
-     *
-     * Later, hardware commands can be moved into a FreeRTOS queue and
-     * processed here or in a dedicated task.
-     */
-    delay(1000);
+    serviceOffsetTransition();
+    delay(5);
 }

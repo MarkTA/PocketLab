@@ -24,7 +24,6 @@ import {
   setPocketLabOffset,
   setPocketLabOutput,
   setPocketLabSettings,
-  setPocketLabWaveform,
   type PocketLabSettings,
   type PocketLabState,
   type PocketLabWaveform,
@@ -107,11 +106,40 @@ function toUiState(
 }
 
 function toProtocolSettings(settings: FunctionGeneratorSettings): PocketLabSettings {
+  const normalizedSettings =
+    settings.waveform === "dc"
+      ? {
+          ...settings,
+          frequencyHz: 0,
+          amplitudeVpp: 0,
+        }
+      : {
+          ...settings,
+          frequencyHz: Math.max(1, Math.round(settings.frequencyHz)),
+        };
+
   return {
-    frequencyHz: settings.frequencyHz,
-    amplitudeVpp: settings.amplitudeVpp,
-    offsetV: settings.offsetV,
-    waveform: UI_TO_PROTOCOL_WAVEFORM[settings.waveform],
+    frequencyHz: normalizedSettings.frequencyHz,
+    amplitudeVpp: normalizedSettings.amplitudeVpp,
+    offsetV: normalizedSettings.offsetV,
+    waveform: UI_TO_PROTOCOL_WAVEFORM[normalizedSettings.waveform],
+  };
+}
+
+function normalizeGeneratorSettings(
+  settings: FunctionGeneratorSettings
+): FunctionGeneratorSettings {
+  if (settings.waveform === "dc") {
+    return {
+      ...settings,
+      frequencyHz: 0,
+      amplitudeVpp: 0,
+    };
+  }
+
+  return {
+    ...settings,
+    frequencyHz: Math.max(1, Math.round(settings.frequencyHz)),
   };
 }
 
@@ -312,11 +340,13 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
   const setGeneratorSettings = useCallback(
     async (settings: FunctionGeneratorSettings): Promise<void> => {
-      await setPocketLabSettings(toProtocolSettings(settings));
+      const normalizedSettings = normalizeGeneratorSettings(settings);
+
+      await setPocketLabSettings(toProtocolSettings(normalizedSettings));
 
       setState((previousState) => ({
         ...previousState,
-        ...settings,
+        ...normalizedSettings,
       }));
     },
     []
@@ -332,7 +362,15 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setFrequency = useCallback(async (hz: number): Promise<void> => {
-    const frequencyHz = Math.round(hz);
+    if (state.waveform === "dc") {
+      setState((previousState) => ({
+        ...previousState,
+        frequencyHz: 0,
+      }));
+      return;
+    }
+
+    const frequencyHz = Math.max(1, Math.round(hz));
 
     await setPocketLabFrequency(frequencyHz);
 
@@ -340,25 +378,47 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       ...previousState,
       frequencyHz,
     }));
-  }, []);
+  }, [state.waveform]);
 
   const setAmplitude = useCallback(async (vpp: number): Promise<void> => {
-    await setPocketLabAmplitude(vpp);
+    if (state.waveform === "dc") {
+      setState((previousState) => ({
+        ...previousState,
+        amplitudeVpp: 0,
+      }));
+      return;
+    }
+
+    const amplitudeVpp = vpp;
+
+    await setPocketLabAmplitude(amplitudeVpp);
 
     setState((previousState) => ({
       ...previousState,
-      amplitudeVpp: vpp,
+      amplitudeVpp,
     }));
-  }, []);
+  }, [state.waveform]);
 
   const setWaveform = useCallback(async (waveform: Waveform): Promise<void> => {
-    await setPocketLabWaveform(UI_TO_PROTOCOL_WAVEFORM[waveform]);
+    const normalizedSettings = normalizeGeneratorSettings({
+      frequencyHz:
+        waveform === "dc"
+          ? 0
+          : state.frequencyHz > 0
+            ? state.frequencyHz
+            : 1000,
+      amplitudeVpp: waveform === "dc" ? 0 : state.amplitudeVpp,
+      offsetV: state.offsetV,
+      waveform,
+    });
+
+    await setPocketLabSettings(toProtocolSettings(normalizedSettings));
 
     setState((previousState) => ({
       ...previousState,
-      waveform,
+      ...normalizedSettings,
     }));
-  }, []);
+  }, [state.amplitudeVpp, state.frequencyHz, state.offsetV]);
 
   const setOutputEnabled = useCallback(async (enabled: boolean): Promise<void> => {
     await setPocketLabOutput(enabled);

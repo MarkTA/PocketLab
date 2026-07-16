@@ -6,3 +6,15 @@ SDATA   <--->  GPIO 23
 FSYNC   <--->  GPIO 5
 DGND    <--->  GND
 VCC     <--->  3V3
+
+Final X9C wiring:
+
+VL → buffered VREF
+VH → conditioned AD9833 signal after the 47 µF capacitor
+VW → OP484 pin 3
+VCC → 4.75 V
+GND → common ground
+CS → ESP32 GPIO25
+INC → ESP32 GPIO26 through 1 kΩ
+U/D → ESP32 GPIO27
+

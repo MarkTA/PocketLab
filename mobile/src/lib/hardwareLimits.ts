@@ -12,12 +12,17 @@ export const AD9833_LIMITS = {
 export const FUNCTION_GENERATOR_LIMITS = {
   minFrequencyHz: 1,
   maxFrequencyHz: 1_000_000,
+  dcFrequencyHz: 0,
 
   minAmplitudeVpp: 0,
-  maxAmplitudeVpp: 5.0,
+  maxAmplitudeVpp: 4.15,
 
-  minOffsetV: -2.5,
-  maxOffsetV: 2.5,
+  // Interim positive-only DAC-controlled output limits.
+  minOffsetV: 0,
+  maxOffsetV: 4.089,
+
+  minActiveOutputV: 0.1,
+  maxActiveOutputV: 4.5,
 };
 
 export function clamp(value: number, min: number, max: number) {
@@ -25,6 +30,10 @@ export function clamp(value: number, min: number, max: number) {
 }
 
 export function frequencyToPeriodSec(frequencyHz: number) {
+  if (frequencyHz === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
   return 1 / frequencyHz;
 }
 
