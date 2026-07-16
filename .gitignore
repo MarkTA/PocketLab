@@ -15,3 +15,6 @@ docs/**/*.png
 docs/**/*.jpeg
 docs/**/*.JPG
 docs/**/*.JPEG
+
+# python venv
+.venv/
