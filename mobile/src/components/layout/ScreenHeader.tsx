@@ -15,9 +15,14 @@ export function ScreenHeader({ title, subtitle, right }: ScreenHeaderProps) {
   return (
     <View style={styles.container}>
       <View style={styles.titleContainer}>
-        <Text variant="headlineMedium">{title}</Text>
+        <Text
+          style={styles.headerText}
+          variant="headlineMedium"
+        >
+            {title}
+        </Text>
 
-        {subtitle ? <Text variant="titleMedium">{subtitle}</Text> : null}
+        {subtitle ? <Text variant="titleMedium" style={styles.subHeaderText}>{subtitle}</Text> : null}
       </View>
 
       {right ? <View style={styles.right}>{right}</View> : null}
@@ -30,7 +35,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    backgroundColor: pocketLabColors.teal,
     gap: 16,
   },
 
@@ -41,4 +45,12 @@ const styles = StyleSheet.create({
   right: {
     flexShrink: 0,
   },
+
+  headerText: {
+    color: "#FFFFFF",
+  },
+
+  subHeaderText: {
+    color: "#FFFFFF",
+  }
 });

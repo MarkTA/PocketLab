@@ -11,6 +11,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { pocketLabColors } from "@/themes/theme";
 
 type ScreenProps = {
   header?: React.ReactNode;
@@ -30,8 +31,9 @@ export function Screen({
 }: ScreenProps) {
   return (
     <SafeAreaView style={styles.safeArea}>
+      {header ? <View style={styles.header}>{header}</View> : null}
       <View style={styles.container}>
-        {header ? <View style={styles.header}>{header}</View> : null}
+        
 
         <ScrollView
           style={styles.scrollView}
@@ -52,16 +54,19 @@ export function Screen({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+    backgroundColor: pocketLabColors.teal,
   },
 
   container: {
     flex: 1,
+    backgroundColor: pocketLabColors.surface,
   },
 
   header: {
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 12,
+    backgroundColor: pocketLabColors.teal,
   },
 
   scrollView: {

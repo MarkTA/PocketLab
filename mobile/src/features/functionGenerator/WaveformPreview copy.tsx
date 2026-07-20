@@ -1,6 +1,6 @@
 /* src/features/functionGenerator/WaveformPreview.tsx */
 
-import React, { useId, useMemo } from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import Svg, { ClipPath, Defs, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 
@@ -13,16 +13,6 @@ type Props = {
   amplitudeVpp: number;
   offsetV: number;
   outputEnabled: boolean;
-  fullscreen?: boolean;
-  chartHeight?: number;
-  viewport?: WaveformViewport;
-};
-
-export type WaveformViewport = {
-  horizontalZoom: number;
-  verticalZoom: number;
-  horizontalPan: number;
-  verticalPan: number;
 };
 
 type Point = {
@@ -33,7 +23,7 @@ type Point = {
 const SCREEN_HORIZONTAL_PADDING = 16;
 const CARD_HORIZONTAL_PADDING = 16;
 
-const DEFAULT_CHART_HEIGHT = 240;
+const CHART_HEIGHT = 240;
 const LEFT_MARGIN = 58;
 const RIGHT_MARGIN = 16;
 const TOP_MARGIN = 18;
@@ -50,23 +40,16 @@ export function WaveformPreview({
   amplitudeVpp,
   offsetV,
   outputEnabled,
-  fullscreen = false,
-  chartHeight = DEFAULT_CHART_HEIGHT,
-  viewport,
 }: Props) {
   const { width: windowWidth } = useWindowDimensions();
-  const clipId = `waveform-clip-${useId().replace(/:/g, "")}`;
 
   const chartWidth = Math.max(
     0,
-    windowWidth -
-      (fullscreen
-        ? SCREEN_HORIZONTAL_PADDING * 2
-        : SCREEN_HORIZONTAL_PADDING * 2 + CARD_HORIZONTAL_PADDING * 2)
+    windowWidth - SCREEN_HORIZONTAL_PADDING * 2 - CARD_HORIZONTAL_PADDING * 2
   );
 
   const plotWidth = chartWidth - LEFT_MARGIN - RIGHT_MARGIN;
-  const plotHeight = chartHeight - TOP_MARGIN - BOTTOM_MARGIN;
+  const plotHeight = CHART_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN;
 
   const safeFrequencyHz =
     Number.isFinite(frequencyHz) && frequencyHz > 0 ? frequencyHz : 1;
@@ -79,25 +62,13 @@ export function WaveformPreview({
   const halfAmplitude = safeAmplitudeVpp / 2;
   const paddingV = Math.max(safeAmplitudeVpp * 0.18, 0.1);
 
-  const baseMinVoltage = safeOffsetV - halfAmplitude - paddingV;
-  const baseMaxVoltage = safeOffsetV + halfAmplitude + paddingV;
+  const minVoltage = safeOffsetV - halfAmplitude - paddingV;
+  const maxVoltage = safeOffsetV + halfAmplitude + paddingV;
 
-  const horizontalZoom = Math.max(1, viewport?.horizontalZoom ?? 1);
-  const verticalZoom = Math.max(1, viewport?.verticalZoom ?? 1);
-
-  const baseTotalTimeSec = CYCLE_COUNT / safeFrequencyHz;
-  const totalTimeSec = baseTotalTimeSec / horizontalZoom;
-  const startTimeSec =
-    (baseTotalTimeSec - totalTimeSec) / 2 + (viewport?.horizontalPan ?? 0) * totalTimeSec;
-
-  const baseVoltageSpan = baseMaxVoltage - baseMinVoltage;
-  const voltageSpan = baseVoltageSpan / verticalZoom;
-  const voltageCenter = safeOffsetV + (viewport?.verticalPan ?? 0) * voltageSpan;
-  const minVoltage = voltageCenter - voltageSpan / 2;
-  const maxVoltage = voltageCenter + voltageSpan / 2;
+  const totalTimeSec = CYCLE_COUNT / safeFrequencyHz;
 
   const xForTime = (timeSec: number) =>
-    LEFT_MARGIN + ((timeSec - startTimeSec) / totalTimeSec) * plotWidth;
+    LEFT_MARGIN + (timeSec / totalTimeSec) * plotWidth;
 
   const yForVoltage = (voltage: number) =>
     TOP_MARGIN + ((maxVoltage - voltage) / (maxVoltage - minVoltage)) * plotHeight;
@@ -105,9 +76,8 @@ export function WaveformPreview({
   const waveformPath = useMemo(() => {
     const points: Point[] = Array.from({ length: SAMPLE_COUNT + 1 }, (_, index) => {
       const progress = index / SAMPLE_COUNT;
-      const timeSec = startTimeSec + progress * totalTimeSec;
-      const cycles = timeSec * safeFrequencyHz;
-      const phase = ((cycles % 1) + 1) % 1;
+      const cycles = progress * CYCLE_COUNT;
+      const phase = cycles % 1;
 
       let normalized = 0;
 
@@ -150,30 +120,20 @@ export function WaveformPreview({
     }
 
     return buildLinearPath(points);
-  }, [
-    waveform,
-    safeFrequencyHz,
-    safeOffsetV,
-    halfAmplitude,
-    plotWidth,
-    minVoltage,
-    maxVoltage,
-    startTimeSec,
-    totalTimeSec,
-  ]);
+  }, [waveform, safeOffsetV, halfAmplitude, plotWidth, minVoltage, maxVoltage]);
 
   const xTicks = useMemo(
     () =>
       Array.from({ length: X_TICK_COUNT }, (_, index) => {
         const progress = index / (X_TICK_COUNT - 1);
-        const timeSec = startTimeSec + progress * totalTimeSec;
+        const timeSec = progress * totalTimeSec;
 
         return {
           x: LEFT_MARGIN + progress * plotWidth,
           label: formatTime(timeSec),
         };
       }),
-    [plotWidth, startTimeSec, totalTimeSec]
+    [plotWidth, totalTimeSec]
   );
 
   const yTicks = useMemo(
@@ -199,9 +159,9 @@ export function WaveformPreview({
 
   return (
     <View style={styles.container}>
-      <Svg width={chartWidth} height={chartHeight}>
+      <Svg width={chartWidth} height={CHART_HEIGHT}>
         <Defs>
-          <ClipPath id={clipId}>
+          <ClipPath id="waveform-clip">
             <Rect x={LEFT_MARGIN} y={TOP_MARGIN} width={plotWidth} height={plotHeight} />
           </ClipPath>
         </Defs>
@@ -300,7 +260,7 @@ export function WaveformPreview({
           strokeWidth={3}
           strokeLinecap="round"
           strokeLinejoin="round"
-          clipPath={`url(#${clipId})`}
+          clipPath="url(#waveform-clip)"
         />
 
         <SvgText
@@ -315,7 +275,7 @@ export function WaveformPreview({
 
         <SvgText
           x={LEFT_MARGIN + plotWidth}
-          y={chartHeight - 6}
+          y={CHART_HEIGHT - 6}
           textAnchor="end"
           fontSize={12}
           fontWeight="700"

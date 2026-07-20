@@ -1,11 +1,22 @@
-/* src/features/functionGenerator/FunctionGeneratorSettingsDialog.tsx */
-
 import React from "react";
 import { ScrollView, StyleSheet } from "react-native";
-import { Button, Dialog, RadioButton, Text, TextInput } from "react-native-paper";
+import { Button, Dialog, Text, TextInput } from "react-native-paper";
 
+import {
+  Dropdown,
+  type DropdownOption,
+} from "../../components/ui/Dropdown";
 import type { Waveform } from "../../types/pocketLab";
 import type { FunctionGeneratorSettingsDraft } from "./useFunctionGeneratorSettingsEditor";
+
+const WAVEFORM_OPTIONS = [
+  { label: "Sine", value: "sine" },
+  { label: "Square", value: "square" },
+  { label: "Triangle", value: "triangle" },
+  { label: "Ramp Up", value: "rampUp" },
+  { label: "Ramp Down", value: "rampDown" },
+  { label: "DC", value: "dc" },
+] as const satisfies readonly DropdownOption<Waveform>[];
 
 type FunctionGeneratorSettingsDialogProps = {
   visible: boolean;
@@ -32,7 +43,11 @@ export function FunctionGeneratorSettingsDialog({
   onDismiss,
 }: FunctionGeneratorSettingsDialogProps) {
   return (
-    <Dialog visible={visible} onDismiss={onDismiss} dismissable={!applying}>
+    <Dialog
+      visible={visible}
+      onDismiss={onDismiss}
+      dismissable={!applying}
+    >
       <Dialog.Title>Signal settings</Dialog.Title>
 
       <Dialog.ScrollArea style={styles.scrollArea}>
@@ -40,21 +55,15 @@ export function FunctionGeneratorSettingsDialog({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}
         >
-          <Text variant="titleSmall">Waveform</Text>
-
-          <RadioButton.Group
+          <Dropdown
+            label="Waveform"
             value={draft.waveform}
-            onValueChange={(value) => {
-              onChange("waveform", value as Waveform);
+            options={WAVEFORM_OPTIONS}
+            disabled={applying}
+            onValueChange={(waveform) => {
+              onChange("waveform", waveform);
             }}
-          >
-            <RadioButton.Item label="Sine" value="sine" disabled={applying} />
-            <RadioButton.Item label="Square" value="square" disabled={applying} />
-            <RadioButton.Item label="Triangle" value="triangle" disabled={applying} />
-            <RadioButton.Item label="Ramp Up" value="rampUp" disabled={applying} />
-            <RadioButton.Item label="Ramp Down" value="rampDown" disabled={applying} />
-            <RadioButton.Item label="DC" value="dc" disabled={applying} />
-          </RadioButton.Group>
+          />
 
           <TextInput
             mode="outlined"
@@ -81,7 +90,7 @@ export function FunctionGeneratorSettingsDialog({
           <TextInput
             mode="outlined"
             label="DC offset (V)"
-            keyboardType="numbers-and-punctuation"
+            keyboardType="decimal-pad"
             value={draft.offsetV}
             disabled={applying}
             onChangeText={(value) => {
@@ -106,7 +115,12 @@ export function FunctionGeneratorSettingsDialog({
           Cancel
         </Button>
 
-        <Button mode="contained" loading={applying} disabled={applying} onPress={onApply}>
+        <Button
+          mode="contained"
+          loading={applying}
+          disabled={applying}
+          onPress={onApply}
+        >
           Apply
         </Button>
       </Dialog.Actions>
