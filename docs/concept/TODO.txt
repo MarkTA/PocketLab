@@ -1,0 +1,6 @@
+# Mobile TODO
+- fix header so it doesn't have container padding
+- better color schemes for light and dark mode
+- use number input for DC offset
+- use dropdown/select field for wave type
+- implement local storage to save and retrieve wave settings

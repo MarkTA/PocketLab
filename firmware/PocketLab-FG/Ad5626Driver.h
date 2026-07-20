@@ -6,7 +6,6 @@ class Ad5626Driver {
 public:
     Ad5626Driver(
         int csPin,
-        int ldacPin,
         int sclkPin,
         int sdinPin,
         int otherChipSelectPin
@@ -32,9 +31,6 @@ private:
     int _sclkPin;
     int _sdinPin;
     int _csPin;
-    int _ldacPin;
     int _otherChipSelectPin;
     uint16_t _currentCode = 0;
-
-    void pulseLdac();
 };

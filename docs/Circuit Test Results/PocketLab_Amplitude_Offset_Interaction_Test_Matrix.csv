@@ -1,0 +1,22 @@
+Test_ID,Test_Description,Waveform,Frequency_Hz,Requested_Amplitude_Vpp,Requested_Offset_V,Calculated_Min_V,Calculated_Max_V,Expected_Result,Actual_Result,Measured_Vpp,Measured_Mean_V,Measured_Min_V,Measured_Max_V,Clipping_or_Notes
+1,Low amplitude near minimum offset,SINE,1000,0.50,0.46,0.210,0.710,ACCEPTED,,,,,,
+2,Low amplitude near maximum offset,SINE,1000,0.50,4.14,3.890,4.390,ACCEPTED,,,,,,
+3,Medium amplitude at low offset,SINE,1000,2.00,1.25,0.250,2.250,ACCEPTED,,,,,,
+4,Medium amplitude at center offset,SINE,1000,2.00,2.30,1.300,3.300,ACCEPTED,,,,,,
+5,Medium amplitude at high offset,SINE,1000,2.00,3.35,2.350,4.350,ACCEPTED,,,,,,
+6,Maximum amplitude at envelope center,SINE,1000,4.15,2.30,0.225,4.375,ACCEPTED,,,,,,
+7,Low amplitude just outside lower envelope,SINE,1000,0.50,0.44,0.190,0.690,REJECTED,,,,,,Confirm previous valid output remains unchanged
+8,Low amplitude just outside upper envelope,SINE,1000,0.50,4.16,3.910,4.410,REJECTED,,,,,,Confirm previous valid output remains unchanged
+9,Medium amplitude just inside lower envelope,SINE,1000,2.00,1.21,0.210,2.210,ACCEPTED,,,,,,
+10,Medium amplitude just outside lower envelope,SINE,1000,2.00,1.19,0.190,2.190,REJECTED,,,,,,Confirm previous valid output remains unchanged
+11,Medium amplitude just inside upper envelope,SINE,1000,2.00,3.39,2.390,4.390,ACCEPTED,,,,,,
+12,Medium amplitude just outside upper envelope,SINE,1000,2.00,3.41,2.410,4.410,REJECTED,,,,,,Confirm previous valid output remains unchanged
+13,Maximum amplitude just inside lower envelope,SINE,1000,4.15,2.28,0.205,4.355,ACCEPTED,,,,,,
+14,Maximum amplitude just outside lower envelope,SINE,1000,4.15,2.27,0.195,4.345,REJECTED,,,,,,Confirm previous valid output remains unchanged
+15,Maximum amplitude just inside upper envelope,SINE,1000,4.15,2.32,0.245,4.395,ACCEPTED,,,,,,
+16,Maximum amplitude just outside upper envelope,SINE,1000,4.15,2.33,0.255,4.405,REJECTED,,,,,,Confirm previous valid output remains unchanged
+17,Amplitude just below global maximum,SINE,1000,4.14,2.30,0.230,4.370,ACCEPTED,,,,,,
+18,Amplitude just above global maximum,SINE,1000,4.16,2.30,0.220,4.380,REJECTED,,,,,,Tests MAX_AMPLITUDE_VPP independently
+19,Maximum amplitude at center triangle repeat,TRIANGLE,1000,4.15,2.30,0.225,4.375,ACCEPTED,,,,,,
+20,Maximum amplitude near lower envelope triangle repeat,TRIANGLE,1000,4.15,2.28,0.205,4.355,ACCEPTED,,,,,,
+21,Maximum amplitude near upper envelope triangle repeat,TRIANGLE,1000,4.15,2.32,0.245,4.395,ACCEPTED,,,,,,

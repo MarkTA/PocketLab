@@ -31,7 +31,7 @@
 
 constexpr char DEVICE_NAME[] = "PocketLab-FG";
 constexpr char MODEL_NAME[] = "PocketLab-FG";
-constexpr char FIRMWARE_VERSION[] = "0.5.3";
+constexpr char FIRMWARE_VERSION[] = "0.5.5";
 constexpr char HARDWARE_VERSION[] = "PROTO-1";
 
 // -----------------------------------------------------------------------------
@@ -87,13 +87,14 @@ String waveformToString(Waveform waveform);
 // AD9833 hardware
 // -----------------------------------------------------------------------------
 
-constexpr int AD9833_SCLK_PIN = 18;
-constexpr int AD9833_SDATA_PIN = 23;
-constexpr int AD9833_FSYNC_PIN = 5;
+// Shared serial bus used by both the AD9833 and AD5626.
+constexpr int SHARED_SPI_SCLK_PIN = 14;
+constexpr int SHARED_SPI_DATA_PIN = 13;
+constexpr int AD9833_FSYNC_PIN = 32;
 
 Ad9833Driver ad9833(
-    AD9833_SCLK_PIN,
-    AD9833_SDATA_PIN,
+    SHARED_SPI_SCLK_PIN,
+    SHARED_SPI_DATA_PIN,
     AD9833_FSYNC_PIN
 );
 
@@ -101,14 +102,20 @@ Ad9833Driver ad9833(
 // AD5626 offset control
 // -----------------------------------------------------------------------------
 
-constexpr int AD5626_CS_PIN = 32;
-constexpr int AD5626_LDAC_PIN = 33;
+constexpr int AD5626_SYNC_PIN = 33;
+
+/*
+ * AD5626 LDAC is tied directly to ground, so it requires no firmware pin.
+ * AD5626 CLR is held inactive high by the external hardware connection.
+ *
+ * AD9833_FSYNC_PIN is passed as the peer-select pin so the DAC driver can
+ * keep the AD9833 deselected while clocking data on the shared bus.
+ */
 
 Ad5626Driver ad5626(
-    AD5626_CS_PIN,
-    AD5626_LDAC_PIN,
-    AD9833_SCLK_PIN,
-    AD9833_SDATA_PIN,
+    AD5626_SYNC_PIN,
+    SHARED_SPI_SCLK_PIN,
+    SHARED_SPI_DATA_PIN,
     AD9833_FSYNC_PIN
 );
 
@@ -116,9 +123,9 @@ Ad5626Driver ad5626(
 // X9C103S amplitude control
 // -----------------------------------------------------------------------------
 
-constexpr int X9C_CS_PIN = 25;
+constexpr int X9C_CS_PIN = 27;
 constexpr int X9C_INC_PIN = 26;
-constexpr int X9C_UD_PIN = 27;
+constexpr int X9C_UD_PIN = 25;
 constexpr uint32_t SAFE_STOP_SETTLE_MS = 25;
 constexpr uint32_t OFFSET_REBIAS_SETTLE_MS = 2000;
 

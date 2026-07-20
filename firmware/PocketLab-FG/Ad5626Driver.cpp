@@ -5,24 +5,20 @@
 
 Ad5626Driver::Ad5626Driver(
     int csPin,
-    int ldacPin,
     int sclkPin,
     int sdinPin,
     int otherChipSelectPin
 )
     : _csPin(csPin),
-      _ldacPin(ldacPin),
       _sclkPin(sclkPin),
       _sdinPin(sdinPin),
       _otherChipSelectPin(otherChipSelectPin) {}
 
 void Ad5626Driver::begin() {
     pinMode(_csPin, OUTPUT);
-    pinMode(_ldacPin, OUTPUT);
     pinMode(_otherChipSelectPin, OUTPUT);
 
     digitalWrite(_csPin, HIGH);
-    digitalWrite(_ldacPin, HIGH);
     digitalWrite(_otherChipSelectPin, HIGH);
 
     // The AD9833 initializes the shared ESP32 hardware SPI bus first.
@@ -37,10 +33,11 @@ void Ad5626Driver::writeCode(uint16_t code) {
     // The AD9833 shares the hardware SPI bus. Keep it deselected while the
     // AD5626 transaction is active.
     digitalWrite(_otherChipSelectPin, HIGH);
-    digitalWrite(_ldacPin, HIGH);
 
-    // The AD5626 uses SPI mode 3 and consumes the least-significant 12 bits.
-    // A 16-bit transfer supplies four leading zeros followed by D11..D0.
+    // LDAC is tied low in hardware, so the DAC output updates automatically
+    // when SYNC returns high at the end of this 16-bit transfer.
+    // The AD5626 uses SPI mode 3 and consumes the least-significant 12 bits;
+    // four leading zeros are followed by D11..D0.
     SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE3));
     digitalWrite(_csPin, LOW);
     delayMicroseconds(1);
@@ -49,7 +46,6 @@ void Ad5626Driver::writeCode(uint16_t code) {
     delayMicroseconds(1);
     SPI.endTransaction();
 
-    pulseLdac();
     _currentCode = code;
 }
 
@@ -90,10 +86,4 @@ uint16_t Ad5626Driver::voltageToCode(float voltage) {
 float Ad5626Driver::codeToVoltage(uint16_t code) {
     code = constrain(code, 0, MAX_CODE);
     return ZERO_SCALE_V + VOLTS_PER_CODE * static_cast<float>(code);
-}
-
-void Ad5626Driver::pulseLdac() {
-    digitalWrite(_ldacPin, LOW);
-    delayMicroseconds(1);
-    digitalWrite(_ldacPin, HIGH);
 }
