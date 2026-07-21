@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Button, Text } from "react-native-paper";
 
 import { pocketLabColors } from "@/themes/theme";
@@ -7,15 +7,21 @@ import { pocketLabColors } from "@/themes/theme";
 type OutputControlFooterProps = {
   connected: boolean;
   running: boolean;
-  pending?: boolean;
-  onPress: () => void;
+  settingsMatch: boolean;
+  settingsPending?: boolean;
+  outputPending?: boolean;
+  onSendUpdate: () => void;
+  onToggleOutput: () => void;
 };
 
 export function OutputControlFooter({
   connected,
   running,
-  pending = false,
-  onPress,
+  settingsMatch,
+  settingsPending = false,
+  outputPending = false,
+  onSendUpdate,
+  onToggleOutput,
 }: OutputControlFooterProps) {
   return (
     <>
@@ -23,16 +29,31 @@ export function OutputControlFooter({
         {running ? "Output is running" : "Output is stopped"}
       </Text>
 
-      <Button
-        mode="contained"
-        disabled={!connected || pending}
-        loading={pending}
-        onPress={onPress}
-        style={[styles.button, running ? styles.stopButton : styles.runButton]}
-        labelStyle={styles.label}
-      >
-        {running ? "STOP OUTPUT" : "RUN OUTPUT"}
-      </Button>
+      <View style={styles.buttonRow}>
+        <Button
+          mode="outlined"
+          disabled={!connected || settingsPending || settingsMatch}
+          loading={settingsPending}
+          onPress={onSendUpdate}
+          style={styles.button}
+          contentStyle={styles.buttonContent}
+          labelStyle={styles.label}
+        >
+          SEND UPDATE
+        </Button>
+
+        <Button
+          mode="contained"
+          disabled={!connected || outputPending}
+          loading={outputPending}
+          onPress={onToggleOutput}
+          style={[styles.button, running ? styles.stopButton : styles.runButton]}
+          contentStyle={styles.buttonContent}
+          labelStyle={styles.label}
+        >
+          {running ? "STOP" : "RUN"}
+        </Button>
+      </View>
     </>
   );
 }
@@ -44,9 +65,18 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 
+  buttonRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+
   button: {
+    flex: 1,
     borderRadius: 14,
-    paddingVertical: 8,
+  },
+
+  buttonContent: {
+    minHeight: 52,
   },
 
   runButton: {

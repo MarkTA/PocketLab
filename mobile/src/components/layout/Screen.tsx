@@ -33,8 +33,6 @@ export function Screen({
     <SafeAreaView style={styles.safeArea}>
       {header ? <View style={styles.header}>{header}</View> : null}
       <View style={styles.container}>
-        
-
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={[styles.content, contentContainerStyle]}

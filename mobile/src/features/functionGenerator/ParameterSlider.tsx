@@ -1,6 +1,6 @@
 import Slider from "@react-native-community/slider";
 import React, { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput, useTheme } from "react-native-paper";
 
 type ParameterSliderProps = {
@@ -17,10 +17,15 @@ type ParameterSliderProps = {
   formatValue: (value: number) => string;
   fromSliderValue?: (value: number) => number;
   toSliderValue?: (value: number) => number;
-  tickLabels?: readonly string[];
+  markers?: readonly SliderMarker[];
   onValueChange: (value: number) => void;
   onValueCommit: (value: number) => void;
   onSlidingStateChange?: (sliding: boolean) => void;
+};
+
+export type SliderMarker = {
+  label: string;
+  value: number;
 };
 
 export function ParameterSlider({
@@ -37,7 +42,7 @@ export function ParameterSlider({
   formatValue,
   fromSliderValue = identity,
   toSliderValue = identity,
-  tickLabels,
+  markers,
   onValueChange,
   onValueCommit,
   onSlidingStateChange,
@@ -119,13 +124,38 @@ export function ParameterSlider({
         style={styles.slider}
       />
 
-      {tickLabels ? (
-        <View style={styles.ticks}>
-          {tickLabels.map((tick) => (
-            <Text key={tick} variant="labelSmall" style={styles.tick}>
-              {tick}
-            </Text>
-          ))}
+      {markers ? (
+        <View style={styles.markers}>
+          {markers.map((marker) => {
+            const markerSliderValue = toSliderValue(marker.value);
+            const position =
+              (markerSliderValue - minimumSliderValue) /
+              (maximumSliderValue - minimumSliderValue);
+
+            return (
+              <Pressable
+                key={`${marker.label}-${marker.value}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Set ${label} to ${marker.label} ${unit}`}
+                disabled={
+                  disabled || marker.value < minimumValue || marker.value > maximumValue
+                }
+                onPress={() => {
+                  const nextValue = clamp(marker.value, minimumValue, maximumValue);
+                  onValueChange(nextValue);
+                  onValueCommit(nextValue);
+                }}
+                style={[styles.marker, { left: `${clamp(position, 0, 1) * 100}%` }]}
+              >
+                <View
+                  style={[styles.markerDot, { backgroundColor: theme.colors.primary }]}
+                />
+                <Text variant="labelSmall" style={styles.markerLabel}>
+                  {marker.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       ) : (
         <View style={styles.rangeRow}>
@@ -182,11 +212,24 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     opacity: 0.7,
   },
-  ticks: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  markers: {
+    position: "relative",
+    height: 40,
   },
-  tick: {
-    opacity: 0.7,
+  marker: {
+    position: "absolute",
+    width: 48,
+    minHeight: 40,
+    marginLeft: -24,
+    alignItems: "center",
+  },
+  markerDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    marginBottom: 3,
+  },
+  markerLabel: {
+    opacity: 0.72,
   },
 });

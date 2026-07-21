@@ -1,7 +1,7 @@
 /* src/features/functionGenerator/FunctionGeneratorScreen.tsx */
 
 import React, { useEffect, useState } from "react";
-import { Keyboard, Pressable, StyleSheet } from "react-native";
+import { Keyboard, StyleSheet } from "react-native";
 import { Card, Text } from "react-native-paper";
 
 import { Screen } from "../../components/layout/Screen";
@@ -9,7 +9,6 @@ import { ScreenHeader } from "../../components/layout/ScreenHeader";
 import { DeviceStatusCard } from "../device/DeviceStatusCard";
 import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
 
-import { FullscreenWaveformPlot } from "./FullscreenWaveformPlot";
 import {
   FunctionGeneratorSettingsPager,
   type EditableGeneratorSettings,
@@ -21,7 +20,6 @@ import { WaveformPreview } from "./WaveformPreview";
 export function FunctionGeneratorScreen() {
   const generator = useFunctionGenerator();
   const [deviceSheetVisible, setDeviceSheetVisible] = useState(false);
-  const [fullscreenPlotVisible, setFullscreenPlotVisible] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const { state, reconnecting } = generator;
@@ -32,15 +30,6 @@ export function FunctionGeneratorScreen() {
     amplitudeVpp: state.amplitudeVpp,
     offsetV: generator.offsetV,
   });
-
-  useEffect(() => {
-    setPreviewSettings({
-      waveform: state.waveform,
-      frequencyHz: state.frequencyHz,
-      amplitudeVpp: state.amplitudeVpp,
-      offsetV: generator.offsetV,
-    });
-  }, [generator.offsetV, state.amplitudeVpp, state.frequencyHz, state.waveform]);
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener("keyboardDidShow", () => {
@@ -56,16 +45,18 @@ export function FunctionGeneratorScreen() {
     };
   }, []);
 
-  const commitSettings = (settings: EditableGeneratorSettings) => {
-    void generator.applySettings(settings).catch(() => {
-      setPreviewSettings({
-        waveform: state.waveform,
-        frequencyHz: state.frequencyHz,
-        amplitudeVpp: state.amplitudeVpp,
-        offsetV: generator.offsetV,
-      });
-    });
-  };
+  const settingsMatch =
+    generator.connected &&
+    previewSettings.waveform === state.waveform &&
+    nearlyEqual(previewSettings.frequencyHz, state.frequencyHz, 0.5) &&
+    nearlyEqual(previewSettings.amplitudeVpp, state.amplitudeVpp, 0.005) &&
+    nearlyEqual(previewSettings.offsetV, generator.offsetV, 0.005);
+
+  const deviceSettingsText = generator.connected
+    ? `Device: ${formatWaveform(state.waveform)} · ${formatFrequency(
+        state.frequencyHz
+      )} · ${state.amplitudeVpp.toFixed(2)} Vpp · ${generator.offsetV.toFixed(2)} V offset`
+    : "Device: Not connected";
 
   return (
     <>
@@ -90,38 +81,34 @@ export function FunctionGeneratorScreen() {
           <OutputControlFooter
             connected={generator.connected}
             running={state.outputEnabled}
-            pending={generator.outputPending}
-            onPress={() => {
+            settingsMatch={settingsMatch}
+            settingsPending={generator.settingsPending}
+            outputPending={generator.outputPending}
+            onSendUpdate={() => {
+              void generator.applySettings(previewSettings).catch(() => undefined);
+            }}
+            onToggleOutput={() => {
               void generator.toggleOutput();
             }}
           />
         }
       >
         <Card style={styles.previewCard}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open fullscreen waveform plot"
-            onPress={() => {
-              setFullscreenPlotVisible(true);
-            }}
-          >
-            <WaveformPreview
-              {...previewSettings}
-              outputEnabled={state.outputEnabled}
-              chartHeight={keyboardVisible ? 130 : 240}
-            />
-            <Text variant="labelSmall" style={styles.expandHint}>
-              Tap plot to expand
-            </Text>
-          </Pressable>
+          <Text variant="bodySmall" style={styles.deviceSettings}>
+            {deviceSettingsText}
+          </Text>
+          <WaveformPreview
+            {...previewSettings}
+            matchesDeviceSettings={settingsMatch}
+            chartHeight={keyboardVisible ? 130 : 240}
+          />
         </Card>
 
         <Card>
           <FunctionGeneratorSettingsPager
             settings={previewSettings}
             onPreviewChange={setPreviewSettings}
-            onCommit={commitSettings}
-            disabled={!generator.connected || generator.settingsPending}
+            disabled={generator.settingsPending}
           />
         </Card>
 
@@ -138,28 +125,47 @@ export function FunctionGeneratorScreen() {
           setDeviceSheetVisible(false);
         }}
       />
-
-      <FullscreenWaveformPlot
-        visible={fullscreenPlotVisible}
-        {...previewSettings}
-        outputEnabled={state.outputEnabled}
-        onDismiss={() => {
-          setFullscreenPlotVisible(false);
-        }}
-      />
     </>
   );
+}
+
+function nearlyEqual(left: number, right: number, tolerance: number): boolean {
+  return Math.abs(left - right) <= tolerance;
+}
+
+function formatWaveform(waveform: EditableGeneratorSettings["waveform"]): string {
+  const labels: Record<EditableGeneratorSettings["waveform"], string> = {
+    sine: "Sine",
+    square: "Square",
+    triangle: "Triangle",
+    rampUp: "Ramp Up",
+    rampDown: "Ramp Down",
+    dc: "DC",
+  };
+
+  return labels[waveform];
+}
+
+function formatFrequency(frequencyHz: number): string {
+  if (frequencyHz >= 1_000_000) {
+    return `${frequencyHz / 1_000_000} MHz`;
+  }
+
+  if (frequencyHz >= 1_000) {
+    return `${frequencyHz / 1_000} kHz`;
+  }
+
+  return `${frequencyHz} Hz`;
 }
 
 const styles = StyleSheet.create({
   previewCard: {
     marginTop: 8,
   },
-  expandHint: {
-    position: "absolute",
-    right: 12,
-    top: 8,
-    opacity: 0.58,
+  deviceSettings: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    opacity: 0.72,
   },
   error: {
     color: "#B3261E",

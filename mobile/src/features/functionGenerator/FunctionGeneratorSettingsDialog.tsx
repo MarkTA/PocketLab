@@ -2,10 +2,7 @@ import React from "react";
 import { ScrollView, StyleSheet } from "react-native";
 import { Button, Dialog, Text, TextInput } from "react-native-paper";
 
-import {
-  Dropdown,
-  type DropdownOption,
-} from "../../components/ui/Dropdown";
+import { Dropdown, type DropdownOption } from "../../components/ui/Dropdown";
 import type { Waveform } from "../../types/pocketLab";
 import type { FunctionGeneratorSettingsDraft } from "./useFunctionGeneratorSettingsEditor";
 
@@ -43,11 +40,7 @@ export function FunctionGeneratorSettingsDialog({
   onDismiss,
 }: FunctionGeneratorSettingsDialogProps) {
   return (
-    <Dialog
-      visible={visible}
-      onDismiss={onDismiss}
-      dismissable={!applying}
-    >
+    <Dialog visible={visible} onDismiss={onDismiss} dismissable={!applying}>
       <Dialog.Title>Signal settings</Dialog.Title>
 
       <Dialog.ScrollArea style={styles.scrollArea}>
@@ -115,12 +108,7 @@ export function FunctionGeneratorSettingsDialog({
           Cancel
         </Button>
 
-        <Button
-          mode="contained"
-          loading={applying}
-          disabled={applying}
-          onPress={onApply}
-        >
+        <Button mode="contained" loading={applying} disabled={applying} onPress={onApply}>
           Apply
         </Button>
       </Dialog.Actions>

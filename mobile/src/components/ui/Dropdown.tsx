@@ -57,11 +57,7 @@ export function Dropdown<Value extends string>({
               value={selectedLabel}
               editable={false}
               disabled={disabled}
-              right={
-                <TextInput.Icon
-                  icon={visible ? "menu-up" : "menu-down"}
-                />
-              }
+              right={<TextInput.Icon icon={visible ? "menu-up" : "menu-down"} />}
             />
           </View>
         </Pressable>

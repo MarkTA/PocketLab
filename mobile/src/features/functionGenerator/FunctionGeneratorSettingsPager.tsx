@@ -6,7 +6,7 @@ import { Text, useTheme } from "react-native-paper";
 import { Dropdown, type DropdownOption } from "../../components/ui/Dropdown";
 import { FUNCTION_GENERATOR_LIMITS, clamp } from "../../lib/hardwareLimits";
 import type { Waveform } from "../../types/pocketLab";
-import { ParameterSlider } from "./ParameterSlider";
+import { ParameterSlider, type SliderMarker } from "./ParameterSlider";
 
 export type EditableGeneratorSettings = {
   waveform: Waveform;
@@ -19,7 +19,6 @@ type Props = {
   settings: EditableGeneratorSettings;
   disabled?: boolean;
   onPreviewChange: (settings: EditableGeneratorSettings) => void;
-  onCommit: (settings: EditableGeneratorSettings) => void;
 };
 
 const TABS = ["Waveform", "Frequency", "Amplitude", "Offset"] as const;
@@ -33,13 +32,36 @@ const WAVEFORM_OPTIONS = [
   { label: "DC", value: "dc" },
 ] as const satisfies readonly DropdownOption<Waveform>[];
 
-const FREQUENCY_TICKS = ["1", "100", "10k", "1M"] as const;
+const FREQUENCY_MARKERS: readonly SliderMarker[] = [
+  { label: "1", value: 1 },
+  { label: "10", value: 10 },
+  { label: "100", value: 100 },
+  { label: "1k", value: 1_000 },
+  { label: "10k", value: 10_000 },
+  { label: "100k", value: 100_000 },
+  { label: "1M", value: 1_000_000 },
+];
+
+const AMPLITUDE_MARKERS: readonly SliderMarker[] = [
+  { label: "0", value: 0 },
+  { label: "1", value: 1 },
+  { label: "2", value: 2 },
+  { label: "3", value: 3 },
+  { label: "4", value: 4 },
+];
+
+const OFFSET_MARKERS: readonly SliderMarker[] = [
+  { label: "0.1", value: 0.1 },
+  { label: "1", value: 1 },
+  { label: "2", value: 2 },
+  { label: "3", value: 3 },
+  { label: "4", value: 4 },
+];
 
 export function FunctionGeneratorSettingsPager({
   settings,
   disabled = false,
   onPreviewChange,
-  onCommit,
 }: Props) {
   const theme = useTheme();
   const pagerRef = useRef<PagerView>(null);
@@ -61,16 +83,12 @@ export function FunctionGeneratorSettingsPager({
     };
   }, [settings.amplitudeVpp]);
 
-  const update = (changes: Partial<EditableGeneratorSettings>, commit = false) => {
+  const update = (changes: Partial<EditableGeneratorSettings>) => {
     const nextSettings = { ...settings, ...changes };
     onPreviewChange(nextSettings);
-
-    if (commit) {
-      onCommit(nextSettings);
-    }
   };
 
-  const updateAmplitude = (amplitudeVpp: number, commit = false) => {
+  const updateAmplitude = (amplitudeVpp: number) => {
     const halfAmplitude = amplitudeVpp / 2;
     const minimumOffset = Math.max(
       FUNCTION_GENERATOR_LIMITS.minOffsetV,
@@ -82,7 +100,7 @@ export function FunctionGeneratorSettingsPager({
     );
     const offsetV = clamp(settings.offsetV, minimumOffset, maximumOffset);
 
-    update({ amplitudeVpp, offsetV }, commit);
+    update({ amplitudeVpp, offsetV });
   };
 
   return (
@@ -147,8 +165,7 @@ export function FunctionGeneratorSettingsPager({
                   : {
                       waveform,
                       frequencyHz: Math.max(1, settings.frequencyHz),
-                    },
-                true
+                    }
               );
             }}
           />
@@ -169,13 +186,13 @@ export function FunctionGeneratorSettingsPager({
             formatValue={formatFrequencyInput}
             fromSliderValue={sliderToFrequency}
             toSliderValue={frequencyToSlider}
-            tickLabels={FREQUENCY_TICKS}
+            markers={FREQUENCY_MARKERS}
             onSlidingStateChange={setSliderActive}
             onValueChange={(frequencyHz) => {
               update({ frequencyHz: roundFrequency(frequencyHz) });
             }}
             onValueCommit={(frequencyHz) => {
-              update({ frequencyHz: roundFrequency(frequencyHz) }, true);
+              update({ frequencyHz: roundFrequency(frequencyHz) });
             }}
           />
         </View>
@@ -190,12 +207,13 @@ export function FunctionGeneratorSettingsPager({
             step={0.01}
             disabled={disabled || settings.waveform === "dc"}
             formatValue={formatVoltageInput}
+            markers={AMPLITUDE_MARKERS}
             onSlidingStateChange={setSliderActive}
             onValueChange={(amplitudeVpp) => {
               updateAmplitude(roundVoltage(amplitudeVpp));
             }}
             onValueCommit={(amplitudeVpp) => {
-              updateAmplitude(roundVoltage(amplitudeVpp), true);
+              updateAmplitude(roundVoltage(amplitudeVpp));
             }}
           />
         </View>
@@ -210,12 +228,13 @@ export function FunctionGeneratorSettingsPager({
             step={0.01}
             disabled={disabled}
             formatValue={formatVoltageInput}
+            markers={OFFSET_MARKERS}
             onSlidingStateChange={setSliderActive}
             onValueChange={(offsetV) => {
               update({ offsetV: roundVoltage(offsetV) });
             }}
             onValueCommit={(offsetV) => {
-              update({ offsetV: roundVoltage(offsetV) }, true);
+              update({ offsetV: roundVoltage(offsetV) });
             }}
           />
         </View>
@@ -279,7 +298,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 3,
   },
   pager: {
-    height: 188,
+    height: 218,
   },
   page: {
     padding: 20,

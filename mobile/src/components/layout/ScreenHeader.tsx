@@ -15,14 +15,15 @@ export function ScreenHeader({ title, subtitle, right }: ScreenHeaderProps) {
   return (
     <View style={styles.container}>
       <View style={styles.titleContainer}>
-        <Text
-          style={styles.headerText}
-          variant="headlineMedium"
-        >
-            {title}
+        <Text style={styles.headerText} variant="headlineMedium">
+          {title}
         </Text>
 
-        {subtitle ? <Text variant="titleMedium" style={styles.subHeaderText}>{subtitle}</Text> : null}
+        {subtitle ? (
+          <Text variant="titleMedium" style={styles.subHeaderText}>
+            {subtitle}
+          </Text>
+        ) : null}
       </View>
 
       {right ? <View style={styles.right}>{right}</View> : null}
@@ -52,5 +53,5 @@ const styles = StyleSheet.create({
 
   subHeaderText: {
     color: "#FFFFFF",
-  }
+  },
 });
