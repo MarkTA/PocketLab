@@ -1,8 +1,8 @@
 /* src/features/functionGenerator/FunctionGeneratorScreen.tsx */
 
 import React, { useEffect, useState } from "react";
-import { Keyboard, StyleSheet } from "react-native";
-import { Card, Text } from "react-native-paper";
+import { Keyboard, StyleSheet, View } from "react-native";
+import { Text } from "react-native-paper";
 
 import { Screen } from "../../components/layout/Screen";
 import { ScreenHeader } from "../../components/layout/ScreenHeader";
@@ -93,7 +93,7 @@ export function FunctionGeneratorScreen() {
           />
         }
       >
-        <Card style={styles.previewCard}>
+        <View style={styles.previewSection}>
           <Text variant="bodySmall" style={styles.deviceSettings}>
             {deviceSettingsText}
           </Text>
@@ -102,15 +102,15 @@ export function FunctionGeneratorScreen() {
             matchesDeviceSettings={settingsMatch}
             chartHeight={keyboardVisible ? 130 : 240}
           />
-        </Card>
+        </View>
 
-        <Card>
+        <View style={styles.settingsSection}>
           <FunctionGeneratorSettingsPager
             settings={previewSettings}
             onPreviewChange={setPreviewSettings}
             disabled={generator.settingsPending}
           />
-        </Card>
+        </View>
 
         {generator.settingsError ? (
           <Text variant="bodySmall" style={styles.error}>
@@ -159,12 +159,17 @@ function formatFrequency(frequencyHz: number): string {
 }
 
 const styles = StyleSheet.create({
-  previewCard: {
+  previewSection: {
     marginTop: 8,
+    marginHorizontal: -16,
+  },
+  settingsSection: {
+    marginHorizontal: -16,
   },
   deviceSettings: {
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 4,
+    paddingBottom: 4,
     opacity: 0.72,
   },
   error: {

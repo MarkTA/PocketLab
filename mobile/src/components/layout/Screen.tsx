@@ -1,15 +1,7 @@
 /* src/components/layout/Screen.tsx */
 
 import React from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  View,
-  Text,
-  type ScrollViewProps,
-  type StyleProp,
-  type ViewStyle,
-} from "react-native";
+import { StyleSheet, View, Text, type StyleProp, type ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pocketLabColors } from "@/themes/theme";
 
@@ -19,29 +11,14 @@ type ScreenProps = {
   footer?: React.ReactNode;
 
   contentContainerStyle?: StyleProp<ViewStyle>;
-  scrollViewProps?: Omit<ScrollViewProps, "children" | "contentContainerStyle">;
 };
 
-export function Screen({
-  header,
-  children,
-  footer,
-  contentContainerStyle,
-  scrollViewProps,
-}: ScreenProps) {
+export function Screen({ header, children, footer, contentContainerStyle }: ScreenProps) {
   return (
     <SafeAreaView style={styles.safeArea}>
       {header ? <View style={styles.header}>{header}</View> : null}
       <View style={styles.container}>
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={[styles.content, contentContainerStyle]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          {...scrollViewProps}
-        >
-          {children}
-        </ScrollView>
+        <View style={[styles.content, contentContainerStyle]}>{children}</View>
 
         {footer ? <View style={styles.footer}>{footer}</View> : null}
       </View>
@@ -67,12 +44,8 @@ const styles = StyleSheet.create({
     backgroundColor: pocketLabColors.teal,
   },
 
-  scrollView: {
-    flex: 1,
-  },
-
   content: {
-    flexGrow: 1,
+    flex: 1,
     paddingHorizontal: 16,
     paddingBottom: 32,
     gap: 16,

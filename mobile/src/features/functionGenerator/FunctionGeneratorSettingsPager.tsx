@@ -1,3 +1,5 @@
+/* src/features/functionGenerator/FunctionGeneratorSettingsPager.tsx */
+
 import PagerView from "react-native-pager-view";
 import React, { useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -51,11 +53,11 @@ const AMPLITUDE_MARKERS: readonly SliderMarker[] = [
 ];
 
 const OFFSET_MARKERS: readonly SliderMarker[] = [
-  { label: "0.1", value: 0.1 },
+  { label: "-2.5", value: -2.5 },
+  { label: "-1", value: -1 },
+  { label: "0", value: 0 },
   { label: "1", value: 1 },
-  { label: "2", value: 2 },
-  { label: "3", value: 3 },
-  { label: "4", value: 4 },
+  { label: "2.5", value: 2.5 },
 ];
 
 export function FunctionGeneratorSettingsPager({

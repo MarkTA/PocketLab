@@ -17,11 +17,12 @@ export const FUNCTION_GENERATOR_LIMITS = {
   minAmplitudeVpp: 0,
   maxAmplitudeVpp: 4.15,
 
-  // Interim positive-only DAC-controlled output limits.
-  minOffsetV: 0,
-  maxOffsetV: 4.089,
+  // Bipolar AC output target. Keep the offset control inside the intended
+  // +/-2.5 V range and constrain the complete waveform to the safe rails.
+  minOffsetV: -2.5,
+  maxOffsetV: 2.5,
 
-  minActiveOutputV: 0.1,
+  minActiveOutputV: -4.5,
   maxActiveOutputV: 4.5,
 };
 
