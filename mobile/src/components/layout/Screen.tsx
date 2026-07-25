@@ -29,7 +29,7 @@ export function Screen({ header, children, footer, contentContainerStyle }: Scre
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: pocketLabColors.teal,
+    backgroundColor: pocketLabColors.darkTeal,
   },
 
   container: {
@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 12,
-    backgroundColor: pocketLabColors.teal,
+    backgroundColor: pocketLabColors.darkTeal,
   },
 
   content: {

@@ -2,11 +2,12 @@
 import { MD3DarkTheme, MD3LightTheme } from "react-native-paper";
 
 export const pocketLabColors = {
-  darkTeal: "#3893ac",
+  darkTeal: "#235868",
+  deviceOff: "#bbbfc7",
   teal: "#62C8D3",
   green: "#67a33c",
   darkGreen: "#5f913b",
-  orange: "#D85B24",
+  orange: "#d65924",
   background: "#F4F6F8",
   surface: "#FFFFFF",
   elevation: "#FFFFFF",

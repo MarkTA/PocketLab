@@ -73,6 +73,7 @@ const styles = StyleSheet.create({
   button: {
     flex: 1,
     borderRadius: 14,
+    backgroundColor: pocketLabColors.deviceOff,
   },
 
   buttonContent: {
@@ -80,7 +81,7 @@ const styles = StyleSheet.create({
   },
 
   runButton: {
-    backgroundColor: pocketLabColors.darkGreen,
+    backgroundColor: pocketLabColors.green,
   },
 
   stopButton: {
@@ -91,5 +92,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: 0.8,
+    color: pocketLabColors.surface,
   },
 });

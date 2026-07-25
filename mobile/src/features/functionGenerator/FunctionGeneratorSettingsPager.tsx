@@ -3,12 +3,12 @@
 import PagerView from "react-native-pager-view";
 import React, { useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { Text, useTheme } from "react-native-paper";
+import { Text, ToggleButton, useTheme } from "react-native-paper";
 
-import { Dropdown, type DropdownOption } from "../../components/ui/Dropdown";
 import { FUNCTION_GENERATOR_LIMITS, clamp } from "../../lib/hardwareLimits";
 import type { Waveform } from "../../types/pocketLab";
 import { ParameterSlider, type SliderMarker } from "./ParameterSlider";
+import { WaveformIcon } from "./WaveformIcon";
 
 export type EditableGeneratorSettings = {
   waveform: Waveform;
@@ -25,6 +25,15 @@ type Props = {
 
 const TABS = ["Waveform", "Frequency", "Amplitude", "Offset"] as const;
 
+const WAVEFORM_LABELS = {
+  "sine": "Sine Wave",
+  "square": "Square Wave",
+  "triangle": "Triangle Wave",
+  "rampUp": "Ramp Up",
+  "rampDown": "Ramp Down",
+  "dc": "DC",
+}
+
 const WAVEFORM_OPTIONS = [
   { label: "Sine", value: "sine" },
   { label: "Square", value: "square" },
@@ -32,7 +41,7 @@ const WAVEFORM_OPTIONS = [
   { label: "Ramp Up", value: "rampUp" },
   { label: "Ramp Down", value: "rampDown" },
   { label: "DC", value: "dc" },
-] as const satisfies readonly DropdownOption<Waveform>[];
+] as const satisfies ReadonlyArray<{ label: string; value: Waveform }>;
 
 const FREQUENCY_MARKERS: readonly SliderMarker[] = [
   { label: "1", value: 1 },
@@ -155,12 +164,14 @@ export function FunctionGeneratorSettingsPager({
         }}
       >
         <View key="waveform" collapsable={false} style={styles.page}>
-          <Dropdown
-            label="Waveform"
+          <Text variant="titleLarge">{WAVEFORM_LABELS[settings.waveform]}</Text>
+          <ToggleButton.Row
             value={settings.waveform}
-            options={WAVEFORM_OPTIONS}
-            disabled={disabled}
-            onValueChange={(waveform) => {
+            onValueChange={(value) => {
+              if (!value) return;
+
+              const waveform = value as Waveform;
+
               update(
                 waveform === "dc"
                   ? { waveform, frequencyHz: 0, amplitudeVpp: 0 }
@@ -170,7 +181,21 @@ export function FunctionGeneratorSettingsPager({
                     }
               );
             }}
-          />
+            style={styles.waveformRow}
+          >
+            {WAVEFORM_OPTIONS.map(({ label, value }) => (
+              <ToggleButton
+                key={value}
+                icon={({ size, color }) => (
+                  <WaveformIcon type={value} size={size} color={color} />
+                )}
+                value={value}
+                disabled={disabled}
+                accessibilityLabel={label}
+                style={styles.waveformButton}
+              />
+            ))}
+          </ToggleButton.Row>
         </View>
 
         <View key="frequency" collapsable={false}>
@@ -304,6 +329,15 @@ const styles = StyleSheet.create({
   },
   page: {
     padding: 20,
-    justifyContent: "center",
+    justifyContent: "flex-start",
+  },
+  waveformRow: {
+    paddingTop: 10,
+    alignSelf: "center",
+    width: "100%",
+  },
+  waveformButton: {
+    flex: 1,
+    maxWidth: 58,
   },
 });

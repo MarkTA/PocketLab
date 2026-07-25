@@ -32,7 +32,7 @@ export function DeviceStatusCard({
         ]}
       />
 
-      <Text variant="bodySmall">
+      <Text variant="bodySmall" style={styles.statusText}>
         {connected
           ? (deviceName ?? "Connected")
           : reconnecting
@@ -61,6 +61,9 @@ const styles = StyleSheet.create({
     backgroundColor: pocketLabColors.orange,
   },
   disconnectedLed: {
-    backgroundColor: pocketLabColors.mutedText,
+    backgroundColor: pocketLabColors.deviceOff,
   },
+  statusText: {
+    color: pocketLabColors.deviceOff
+  }
 });

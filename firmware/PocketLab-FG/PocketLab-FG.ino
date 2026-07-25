@@ -23,7 +23,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
-#include <string> 
+#include <string>
 
 // -----------------------------------------------------------------------------
 // Device information
@@ -31,7 +31,7 @@
 
 constexpr char DEVICE_NAME[] = "PocketLab-FG";
 constexpr char MODEL_NAME[] = "PocketLab-FG";
-constexpr char FIRMWARE_VERSION[] = "0.5.5";
+constexpr char FIRMWARE_VERSION[] = "0.6.6";
 constexpr char HARDWARE_VERSION[] = "PROTO-1";
 
 // -----------------------------------------------------------------------------
@@ -127,20 +127,12 @@ constexpr int X9C_CS_PIN = 27;
 constexpr int X9C_INC_PIN = 26;
 constexpr int X9C_UD_PIN = 25;
 constexpr uint32_t SAFE_STOP_SETTLE_MS = 25;
-constexpr uint32_t OFFSET_REBIAS_SETTLE_MS = 2000;
 
 X9c103sDriver x9c(
     X9C_CS_PIN,
     X9C_INC_PIN,
     X9C_UD_PIN
 );
-
-struct OffsetTransitionState {
-    bool active = false;
-    uint32_t restoreAtMs = 0;
-};
-
-OffsetTransitionState offsetTransition;
 
 struct AmplitudeCalibrationPoint {
     float outputVpp;
@@ -244,69 +236,9 @@ void applyOffset(float offsetV) {
     );
 }
 
-void cancelOffsetTransition(const char* reason) {
-    if (!offsetTransition.active) {
-        return;
-    }
-
-    offsetTransition.active = false;
-    Serial.printf("[OFFSET] Transition cancelled: %s\n", reason);
-}
-
-void beginOffsetTransition(float offsetV) {
-    // Verified hardware sequence: mute, change bias, allow the 47 uF
-    // coupling capacitor to rebias, then restore the requested amplitude.
-    x9c.forceToVL();
-    applyOffset(offsetV);
-
-    offsetTransition.active = true;
-    offsetTransition.restoreAtMs =
-        millis() + OFFSET_REBIAS_SETTLE_MS;
-
-    Serial.printf(
-        "[OFFSET] Output muted; rebiasing for %lu ms\n",
-        static_cast<unsigned long>(OFFSET_REBIAS_SETTLE_MS)
-    );
-}
-
-void serviceOffsetTransition() {
-    if (!offsetTransition.active) {
-        return;
-    }
-
-    if (
-        static_cast<int32_t>(
-            millis() - offsetTransition.restoreAtMs
-        ) < 0
-    ) {
-        return;
-    }
-
-    offsetTransition.active = false;
-
-    if (
-        generatorState.outputEnabled &&
-        generatorState.waveform != Waveform::DC
-    ) {
-        applyAmplitude(generatorState.amplitudeVpp);
-
-        Serial.printf(
-            "[OFFSET] Rebias complete; restored %.2f Vpp\n",
-            generatorState.amplitudeVpp
-        );
-    } else {
-        x9c.forceToVL();
-        Serial.println(
-            "[OFFSET] Rebias complete; output remains muted"
-        );
-    }
-}
-
 bool applyAd9833State(
     const FunctionGeneratorState& state
 ) {
-    cancelOffsetTransition("complete hardware state applied");
-
     /*
      * OFF is valid for every logical waveform, including the PocketLab idle
      * state (DC, 0 Hz, 0 Vpp). Do not try to configure an unsupported waveform
@@ -316,10 +248,12 @@ bool applyAd9833State(
         x9c.forceToVL();
         delay(SAFE_STOP_SETTLE_MS);
         ad9833.stop();
-        ad5626.clear();
+        applyOffset(0.0f);
 
         Serial.printf(
-            "[SAFE] Applied 0 V safe-off; logical WAVE=%s;FREQ=%lu\n",
+            "[SAFE] Output off; DAC=0.000 V; retained requested "
+            "OFFSET=%.3f V;WAVE=%s;FREQ=%lu\n",
+            state.offsetV,
             waveformToString(state.waveform).c_str(),
             static_cast<unsigned long>(state.frequencyHz)
         );
@@ -403,6 +337,11 @@ NimBLECharacteristic* responseCharacteristic = nullptr;
  * separately for each connection.
  */
 bool responseNotificationsEnabled = false;
+
+// Serial Monitor commands are accumulated until CR or LF, then passed to
+// the same parser used by BLE writes.
+String serialCommandBuffer;
+constexpr size_t MAX_SERIAL_COMMAND_LENGTH = 256;
 
 // -----------------------------------------------------------------------------
 // Utility functions
@@ -770,12 +709,18 @@ void handleSetOffset(const String& argument) {
         return;
     }
 
+    /*
+     * Retain the requested offset while disabled, but keep the physical output
+     * in its 0 V safe state. OUTPUT=ON applies the retained value.
+     */
     if (pendingState.outputEnabled) {
-        if (pendingState.waveform == Waveform::DC) {
-            applyOffset(offsetV);
-        } else {
-            beginOffsetTransition(offsetV);
-        }
+        applyOffset(offsetV);
+    } else {
+        applyOffset(0.0f);
+        Serial.printf(
+            "[SAFE] Stored requested OFFSET=%.3f V; DAC remains at 0.000 V\n",
+            offsetV
+        );
     }
 
     generatorState = pendingState;
@@ -831,7 +776,6 @@ void handleSetWaveform(String argument) {
 
     sendOk();
 }
-
 
 bool parseStateField(
     const String& field,
@@ -1032,6 +976,9 @@ void handleSetState(const String& argument) {
             pendingState.offsetV - generatorState.offsetV
         ) > 0.0005f;
 
+    const bool outputEnabledChanged =
+        pendingState.outputEnabled != generatorState.outputEnabled;
+
     if (
         pendingState.outputEnabled &&
         !stateFitsUnipolarOutputEnvelope(pendingState)
@@ -1040,46 +987,20 @@ void handleSetState(const String& argument) {
         return;
     }
 
-    /*
-     * SET_STATE is also used by the app for amplitude-slider updates. Avoid
-     * restarting the AD9833 when only amplitude or the future offset setting
-     * changed. Restarting the DDS unnecessarily creates a transient across
-     * the AC-coupling capacitor.
-     *
-     * When output is off, retain the requested settings logically and leave
-     * the physical path in its existing safe-off state. OUTPUT ON applies the
-     * complete requested state later.
-     */
-    if (pendingState.outputEnabled) {
-        if (
-            offsetChanged &&
-            pendingState.waveform != Waveform::DC
-        ) {
-            beginOffsetTransition(pendingState.offsetV);
-
-            /*
-             * If frequency or waveform changed in the same SET_STATE, update
-             * the DDS while the amplitude path is muted. Do not use
-             * applyAd9833State() here because it would restore amplitude
-             * before the rebias interval has elapsed.
-             */
-            if (
-                ddsConfigurationChanged &&
-                !ad9833.apply(
-                    pendingState.frequencyHz,
-                    pendingState.waveform
-                )
-            ) {
-                cancelOffsetTransition("DDS apply failed");
-                x9c.forceToVL();
+    if (!pendingState.outputEnabled) {
+        /*
+         * Any SET_STATE request that disables the output must also mute the
+         * waveform and force the physical DAC output to 0 V. Requested
+         * amplitude/offset settings remain stored for the next OUTPUT=ON.
+         */
+        if (outputEnabledChanged || offsetChanged) {
+            if (!applyAd9833State(pendingState)) {
                 sendError("HARDWARE_APPLY_FAILED");
                 return;
             }
-
-            Serial.println(
-                "[STATE] Offset update started; AD9833 remains running"
-            );
-        } else if (ddsConfigurationChanged) {
+        }
+    } else {
+        if (outputEnabledChanged || ddsConfigurationChanged) {
             if (!applyAd9833State(pendingState)) {
                 sendError("HARDWARE_APPLY_FAILED");
                 return;
@@ -1087,6 +1008,10 @@ void handleSetState(const String& argument) {
         } else if (amplitudeChanged || offsetChanged) {
             if (amplitudeChanged) {
                 applyAmplitude(pendingState.amplitudeVpp);
+            }
+
+            if (offsetChanged) {
+                applyOffset(pendingState.offsetV);
             }
 
             Serial.println(
@@ -1175,8 +1100,11 @@ void processCommand(String command) {
         return;
     }
 
-    String commandName = getCommandName(command);
-    String argument = getArgument(command);
+    String commandName;
+    String argument;
+
+    commandName = getCommandName(command);
+    argument = getArgument(command);
 
     commandName.toUpperCase();
 
@@ -1184,21 +1112,6 @@ void processCommand(String command) {
         "[RX] %s\n",
         command.c_str()
     );
-
-    /*
-     * Keep the verified transition atomic. Read-only commands and emergency
-     * OUTPUT OFF remain available while the capacitor is rebiasing.
-     */
-    if (
-        offsetTransition.active &&
-        commandName != "PING" &&
-        commandName != "INFO" &&
-        commandName != "GET_STATE" &&
-        !(commandName == "OUTPUT" && argument.equalsIgnoreCase("OFF"))
-    ) {
-        sendError("OFFSET_TRANSITION_BUSY");
-        return;
-    }
 
     // -------------------------------------------------------------------------
     // Commands without arguments
@@ -1301,6 +1214,30 @@ void processCommand(String command) {
     sendError("UNKNOWN_COMMAND");
 }
 
+void serviceSerialCommands() {
+    while (Serial.available() > 0) {
+        const char character = static_cast<char>(Serial.read());
+
+        if (character == '\r' || character == '\n') {
+            if (serialCommandBuffer.length() > 0) {
+                String command = serialCommandBuffer;
+                serialCommandBuffer = "";
+                processCommand(command);
+            }
+
+            continue;
+        }
+
+        if (serialCommandBuffer.length() >= MAX_SERIAL_COMMAND_LENGTH) {
+            serialCommandBuffer = "";
+            sendError("SERIAL_COMMAND_TOO_LONG");
+            continue;
+        }
+
+        serialCommandBuffer += character;
+    }
+}
+
 // -----------------------------------------------------------------------------
 // BLE server callbacks
 // -----------------------------------------------------------------------------
@@ -1357,9 +1294,8 @@ public:
          * Fail safe: a lost BLE connection must never leave the physical
          * output running. This also clears square-wave OPBITEN, which would
          * otherwise leave VOUT near 3.3 V while RESET is asserted.
-         */
+        */
         generatorState.outputEnabled = false;
-        cancelOffsetTransition("BLE disconnect");
         x9c.forceToVL();
         delay(SAFE_STOP_SETTLE_MS);
         ad9833.stop();
@@ -1722,6 +1658,10 @@ void setup() {
     Serial.println(
         "[BLE] PocketLab command server ready"
     );
+
+    Serial.println(
+        "[SERIAL] Command input ready at 115200 baud; use Newline"
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -1729,6 +1669,6 @@ void setup() {
 // -----------------------------------------------------------------------------
 
 void loop() {
-    serviceOffsetTransition();
+    serviceSerialCommands();
     delay(5);
 }
