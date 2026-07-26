@@ -17,13 +17,14 @@ export const FUNCTION_GENERATOR_LIMITS = {
   minAmplitudeVpp: 0,
   maxAmplitudeVpp: 4.15,
 
-  // Bipolar AC output target. Keep the offset control inside the intended
-  // +/-2.5 V range and constrain the complete waveform to the safe rails.
-  minOffsetV: -2.5,
-  maxOffsetV: 2.5,
+  // OFFSET is the physical AD5626 command. The final bipolar output center is
+  // OFFSET - bipolarReferenceV.
+  minOffsetV: 0,
+  maxOffsetV: 4.089,
+  bipolarReferenceV: 2.027,
 
-  minActiveOutputV: -4.5,
-  maxActiveOutputV: 4.5,
+  minActiveOutputV: -4.4,
+  maxActiveOutputV: 4.4,
 };
 
 export function clamp(value: number, min: number, max: number) {

@@ -92,7 +92,7 @@ export function FunctionGeneratorSettingsDialog({
           />
 
           <Text variant="bodySmall" style={styles.limits}>
-            Frequency 1 Hz–1 MHz · Amplitude 0–5 Vpp · Offset −2.5–2.5 V
+            Frequency 1 Hz–1 MHz · Amplitude 0–4.15 Vpp · Offset command 0–4.09 V
           </Text>
 
           {errorMessage ? (

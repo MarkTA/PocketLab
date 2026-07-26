@@ -26,13 +26,13 @@ type Props = {
 const TABS = ["Waveform", "Frequency", "Amplitude", "Offset"] as const;
 
 const WAVEFORM_LABELS = {
-  "sine": "Sine Wave",
-  "square": "Square Wave",
-  "triangle": "Triangle Wave",
-  "rampUp": "Ramp Up",
-  "rampDown": "Ramp Down",
-  "dc": "DC",
-}
+  sine: "Sine Wave",
+  square: "Square Wave",
+  triangle: "Triangle Wave",
+  rampUp: "Ramp Up",
+  rampDown: "Ramp Down",
+  dc: "DC",
+};
 
 const WAVEFORM_OPTIONS = [
   { label: "Sine", value: "sine" },
@@ -62,11 +62,11 @@ const AMPLITUDE_MARKERS: readonly SliderMarker[] = [
 ];
 
 const OFFSET_MARKERS: readonly SliderMarker[] = [
-  { label: "-2.5", value: -2.5 },
-  { label: "-1", value: -1 },
   { label: "0", value: 0 },
   { label: "1", value: 1 },
-  { label: "2.5", value: 2.5 },
+  { label: "2.03", value: 2.027 },
+  { label: "3", value: 3 },
+  { label: "4.09", value: 4.089 },
 ];
 
 export function FunctionGeneratorSettingsPager({
@@ -85,11 +85,15 @@ export function FunctionGeneratorSettingsPager({
     return {
       minimum: Math.max(
         FUNCTION_GENERATOR_LIMITS.minOffsetV,
-        FUNCTION_GENERATOR_LIMITS.minActiveOutputV + halfAmplitude
+        FUNCTION_GENERATOR_LIMITS.minActiveOutputV +
+          halfAmplitude +
+          FUNCTION_GENERATOR_LIMITS.bipolarReferenceV
       ),
       maximum: Math.min(
         FUNCTION_GENERATOR_LIMITS.maxOffsetV,
-        FUNCTION_GENERATOR_LIMITS.maxActiveOutputV - halfAmplitude
+        FUNCTION_GENERATOR_LIMITS.maxActiveOutputV -
+          halfAmplitude +
+          FUNCTION_GENERATOR_LIMITS.bipolarReferenceV
       ),
     };
   }, [settings.amplitudeVpp]);
@@ -103,11 +107,15 @@ export function FunctionGeneratorSettingsPager({
     const halfAmplitude = amplitudeVpp / 2;
     const minimumOffset = Math.max(
       FUNCTION_GENERATOR_LIMITS.minOffsetV,
-      FUNCTION_GENERATOR_LIMITS.minActiveOutputV + halfAmplitude
+      FUNCTION_GENERATOR_LIMITS.minActiveOutputV +
+        halfAmplitude +
+        FUNCTION_GENERATOR_LIMITS.bipolarReferenceV
     );
     const maximumOffset = Math.min(
       FUNCTION_GENERATOR_LIMITS.maxOffsetV,
-      FUNCTION_GENERATOR_LIMITS.maxActiveOutputV - halfAmplitude
+      FUNCTION_GENERATOR_LIMITS.maxActiveOutputV -
+        halfAmplitude +
+        FUNCTION_GENERATOR_LIMITS.bipolarReferenceV
     );
     const offsetV = clamp(settings.offsetV, minimumOffset, maximumOffset);
 
