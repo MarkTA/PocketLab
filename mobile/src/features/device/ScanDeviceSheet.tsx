@@ -1,5 +1,5 @@
 /* src/features/device/ScanDeviceSheet.tsx */
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import type { Device } from "react-native-ble-plx";
 import {
@@ -100,14 +100,6 @@ export function ScanDeviceSheet({ visible, onDismiss }: ScanDeviceSheetProps) {
       setTestingWrite(false);
     }
   };
-
-  useEffect(() => {
-    if (!state.connected) {
-      setMessage(null);
-      setTestingWrite(false);
-      setConnectingDeviceId(null);
-    }
-  }, [state.connected]);
 
   const showConnectedView = state.connected || reconnecting;
 

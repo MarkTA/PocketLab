@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "deviceId": "pocketlab-fg-prototype-01",
+  "output": {
+    "minimumV": -5.0,
+    "maximumV": 5.0,
+    "zeroCorrectionV": 0.0
+  },
+  "amplitude": {
+    "gainCorrection": 1.0,
+    "offsetCorrectionVpp": 0.0
+  },
+  "offset": {
+    "gainCorrection": 1.0,
+    "offsetCorrectionV": 0.0
+  }
+}

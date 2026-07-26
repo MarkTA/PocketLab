@@ -13,6 +13,11 @@ import React, {
 import type { Device } from "react-native-ble-plx";
 
 import type { FunctionGeneratorState, Waveform } from "../../types/pocketLab";
+import { ACTIVE_CALIBRATION_PROFILE } from "../../calibration/activeCalibration";
+import {
+  fromHardwareGeneratorSettings,
+  toHardwareGeneratorSettings,
+} from "../../calibration/calibrationTransforms";
 
 import { bleDiagnostic } from "./bleClient";
 import {
@@ -96,12 +101,17 @@ function toUiState(
   FunctionGeneratorState,
   "frequencyHz" | "amplitudeVpp" | "offsetV" | "waveform" | "outputEnabled"
 > {
+  const requestedState = fromHardwareGeneratorSettings(
+    deviceState,
+    ACTIVE_CALIBRATION_PROFILE
+  );
+
   return {
-    frequencyHz: deviceState.frequencyHz,
-    amplitudeVpp: deviceState.amplitudeVpp,
-    offsetV: deviceState.offsetV,
+    frequencyHz: requestedState.frequencyHz,
+    amplitudeVpp: requestedState.amplitudeVpp,
+    offsetV: requestedState.offsetV,
     waveform: PROTOCOL_TO_UI_WAVEFORM[deviceState.waveform],
-    outputEnabled: deviceState.outputEnabled,
+    outputEnabled: requestedState.outputEnabled,
   };
 }
 
@@ -118,11 +128,16 @@ function toProtocolSettings(settings: FunctionGeneratorSettings): PocketLabSetti
           frequencyHz: Math.max(1, Math.round(settings.frequencyHz)),
         };
 
+  const hardwareSettings = toHardwareGeneratorSettings(
+    normalizedSettings,
+    ACTIVE_CALIBRATION_PROFILE
+  );
+
   return {
-    frequencyHz: normalizedSettings.frequencyHz,
-    amplitudeVpp: normalizedSettings.amplitudeVpp,
-    offsetV: normalizedSettings.offsetV,
-    waveform: UI_TO_PROTOCOL_WAVEFORM[normalizedSettings.waveform],
+    frequencyHz: hardwareSettings.frequencyHz,
+    amplitudeVpp: hardwareSettings.amplitudeVpp,
+    offsetV: hardwareSettings.offsetV,
+    waveform: UI_TO_PROTOCOL_WAVEFORM[hardwareSettings.waveform],
   };
 }
 
@@ -352,14 +367,24 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  const setOffset = useCallback(async (volts: number): Promise<void> => {
-    await setPocketLabOffset(volts);
+  const setOffset = useCallback(
+    async (volts: number): Promise<void> => {
+      const hardwareSettings = toProtocolSettings({
+        frequencyHz: state.frequencyHz,
+        amplitudeVpp: state.amplitudeVpp,
+        offsetV: volts,
+        waveform: state.waveform,
+      });
 
-    setState((previousState) => ({
-      ...previousState,
-      offsetV: volts,
-    }));
-  }, []);
+      await setPocketLabOffset(hardwareSettings.offsetV);
+
+      setState((previousState) => ({
+        ...previousState,
+        offsetV: volts,
+      }));
+    },
+    [state.amplitudeVpp, state.frequencyHz, state.waveform]
+  );
 
   const setFrequency = useCallback(
     async (hz: number): Promise<void> => {
@@ -394,15 +419,21 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       }
 
       const amplitudeVpp = vpp;
+      const hardwareSettings = toProtocolSettings({
+        frequencyHz: state.frequencyHz,
+        amplitudeVpp,
+        offsetV: state.offsetV,
+        waveform: state.waveform,
+      });
 
-      await setPocketLabAmplitude(amplitudeVpp);
+      await setPocketLabAmplitude(hardwareSettings.amplitudeVpp);
 
       setState((previousState) => ({
         ...previousState,
         amplitudeVpp,
       }));
     },
-    [state.waveform]
+    [state.frequencyHz, state.offsetV, state.waveform]
   );
 
   const setWaveform = useCallback(
@@ -425,14 +456,26 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     [state.amplitudeVpp, state.frequencyHz, state.offsetV]
   );
 
-  const setOutputEnabled = useCallback(async (enabled: boolean): Promise<void> => {
-    await setPocketLabOutput(enabled);
+  const setOutputEnabled = useCallback(
+    async (enabled: boolean): Promise<void> => {
+      if (enabled) {
+        toProtocolSettings({
+          frequencyHz: state.frequencyHz,
+          amplitudeVpp: state.amplitudeVpp,
+          offsetV: state.offsetV,
+          waveform: state.waveform,
+        });
+      }
 
-    setState((previousState) => ({
-      ...previousState,
-      outputEnabled: enabled,
-    }));
-  }, []);
+      await setPocketLabOutput(enabled);
+
+      setState((previousState) => ({
+        ...previousState,
+        outputEnabled: enabled,
+      }));
+    },
+    [state.amplitudeVpp, state.frequencyHz, state.offsetV, state.waveform]
+  );
 
   const value = useMemo<DeviceContextValue>(
     () => ({

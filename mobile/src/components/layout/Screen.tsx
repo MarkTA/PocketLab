@@ -1,7 +1,7 @@
 /* src/components/layout/Screen.tsx */
 
 import React from "react";
-import { StyleSheet, View, Text, type StyleProp, type ViewStyle } from "react-native";
+import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { pocketLabColors } from "@/themes/theme";
 

@@ -5,7 +5,12 @@ import React, { useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text, ToggleButton, useTheme } from "react-native-paper";
 
-import { FUNCTION_GENERATOR_LIMITS, clamp } from "../../lib/hardwareLimits";
+import { ACTIVE_FUNCTION_GENERATOR_LIMITS } from "../../calibration/activeCalibration";
+import {
+  clamp,
+  getMaximumAmplitudeVpp,
+  getOffsetRangeForAmplitude,
+} from "../../lib/hardwareLimits";
 import type { Waveform } from "../../types/pocketLab";
 import { ParameterSlider, type SliderMarker } from "./ParameterSlider";
 import { WaveformIcon } from "./WaveformIcon";
@@ -41,7 +46,7 @@ const WAVEFORM_OPTIONS = [
   { label: "Ramp Up", value: "rampUp" },
   { label: "Ramp Down", value: "rampDown" },
   { label: "DC", value: "dc" },
-] as const satisfies ReadonlyArray<{ label: string; value: Waveform }>;
+] as const satisfies readonly { label: string; value: Waveform }[];
 
 const FREQUENCY_MARKERS: readonly SliderMarker[] = [
   { label: "1", value: 1 },
@@ -62,11 +67,11 @@ const AMPLITUDE_MARKERS: readonly SliderMarker[] = [
 ];
 
 const OFFSET_MARKERS: readonly SliderMarker[] = [
+  { label: "−2.02", value: -2.02 },
+  { label: "−1", value: -1 },
   { label: "0", value: 0 },
   { label: "1", value: 1 },
-  { label: "2.03", value: 2.027 },
-  { label: "3", value: 3 },
-  { label: "4.09", value: 4.089 },
+  { label: "2.06", value: 2.06 },
 ];
 
 export function FunctionGeneratorSettingsPager({
@@ -79,24 +84,16 @@ export function FunctionGeneratorSettingsPager({
   const [activePage, setActivePage] = useState(0);
   const [sliderActive, setSliderActive] = useState(false);
 
-  const offsetRange = useMemo(() => {
-    const halfAmplitude = settings.amplitudeVpp / 2;
+  const offsetRange = useMemo(
+    () =>
+      getOffsetRangeForAmplitude(settings.amplitudeVpp, ACTIVE_FUNCTION_GENERATOR_LIMITS),
+    [settings.amplitudeVpp]
+  );
 
-    return {
-      minimum: Math.max(
-        FUNCTION_GENERATOR_LIMITS.minOffsetV,
-        FUNCTION_GENERATOR_LIMITS.minActiveOutputV +
-          halfAmplitude +
-          FUNCTION_GENERATOR_LIMITS.bipolarReferenceV
-      ),
-      maximum: Math.min(
-        FUNCTION_GENERATOR_LIMITS.maxOffsetV,
-        FUNCTION_GENERATOR_LIMITS.maxActiveOutputV -
-          halfAmplitude +
-          FUNCTION_GENERATOR_LIMITS.bipolarReferenceV
-      ),
-    };
-  }, [settings.amplitudeVpp]);
+  const maximumAmplitudeVpp = useMemo(
+    () => getMaximumAmplitudeVpp(settings.offsetV, ACTIVE_FUNCTION_GENERATOR_LIMITS),
+    [settings.offsetV]
+  );
 
   const update = (changes: Partial<EditableGeneratorSettings>) => {
     const nextSettings = { ...settings, ...changes };
@@ -104,20 +101,11 @@ export function FunctionGeneratorSettingsPager({
   };
 
   const updateAmplitude = (amplitudeVpp: number) => {
-    const halfAmplitude = amplitudeVpp / 2;
-    const minimumOffset = Math.max(
-      FUNCTION_GENERATOR_LIMITS.minOffsetV,
-      FUNCTION_GENERATOR_LIMITS.minActiveOutputV +
-        halfAmplitude +
-        FUNCTION_GENERATOR_LIMITS.bipolarReferenceV
+    const range = getOffsetRangeForAmplitude(
+      amplitudeVpp,
+      ACTIVE_FUNCTION_GENERATOR_LIMITS
     );
-    const maximumOffset = Math.min(
-      FUNCTION_GENERATOR_LIMITS.maxOffsetV,
-      FUNCTION_GENERATOR_LIMITS.maxActiveOutputV -
-        halfAmplitude +
-        FUNCTION_GENERATOR_LIMITS.bipolarReferenceV
-    );
-    const offsetV = clamp(settings.offsetV, minimumOffset, maximumOffset);
+    const offsetV = clamp(settings.offsetV, range.minimum, range.maximum);
 
     update({ amplitudeVpp, offsetV });
   };
@@ -212,8 +200,8 @@ export function FunctionGeneratorSettingsPager({
             value={Math.max(1, settings.frequencyHz)}
             sliderValue={Math.max(1, settings.frequencyHz)}
             unit="Hz"
-            minimumValue={FUNCTION_GENERATOR_LIMITS.minFrequencyHz}
-            maximumValue={FUNCTION_GENERATOR_LIMITS.maxFrequencyHz}
+            minimumValue={ACTIVE_FUNCTION_GENERATOR_LIMITS.minFrequencyHz}
+            maximumValue={ACTIVE_FUNCTION_GENERATOR_LIMITS.maxFrequencyHz}
             minimumSliderValue={0}
             maximumSliderValue={6}
             step={0.001}
@@ -237,8 +225,8 @@ export function FunctionGeneratorSettingsPager({
             label="Amplitude"
             value={settings.amplitudeVpp}
             unit="Vpp"
-            minimumValue={FUNCTION_GENERATOR_LIMITS.minAmplitudeVpp}
-            maximumValue={FUNCTION_GENERATOR_LIMITS.maxAmplitudeVpp}
+            minimumValue={ACTIVE_FUNCTION_GENERATOR_LIMITS.minAmplitudeVpp}
+            maximumValue={maximumAmplitudeVpp}
             step={0.01}
             disabled={disabled || settings.waveform === "dc"}
             formatValue={formatVoltageInput}

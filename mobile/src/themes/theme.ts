@@ -1,5 +1,5 @@
 // src/theme/theme.ts
-import { MD3DarkTheme, MD3LightTheme } from "react-native-paper";
+import { MD3LightTheme } from "react-native-paper";
 
 export const pocketLabColors = {
   darkTeal: "#235868",

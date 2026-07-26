@@ -3,7 +3,6 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
 import { Text } from "react-native-paper";
-import { pocketLabColors } from "@/themes/theme";
 
 type ScreenHeaderProps = {
   title: string;

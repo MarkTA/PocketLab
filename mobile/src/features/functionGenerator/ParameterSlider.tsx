@@ -1,5 +1,5 @@
 import Slider from "@react-native-community/slider";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput, useTheme } from "react-native-paper";
 
@@ -14,6 +14,7 @@ type ParameterSliderProps = {
   maximumSliderValue?: number;
   step?: number;
   disabled?: boolean;
+  keyboardType?: React.ComponentProps<typeof TextInput>["keyboardType"];
   formatValue: (value: number) => string;
   fromSliderValue?: (value: number) => number;
   toSliderValue?: (value: number) => number;
@@ -39,6 +40,7 @@ export function ParameterSlider({
   maximumSliderValue = maximumValue,
   step,
   disabled = false,
+  keyboardType = "decimal-pad",
   formatValue,
   fromSliderValue = identity,
   toSliderValue = identity,
@@ -48,17 +50,16 @@ export function ParameterSlider({
   onSlidingStateChange,
 }: ParameterSliderProps) {
   const theme = useTheme();
-  const [textValue, setTextValue] = useState(formatValue(value));
-
-  useEffect(() => {
-    setTextValue(formatValue(value));
-  }, [formatValue, value]);
+  const [textValue, setTextValue] = useState(() => formatValue(value));
+  const [isEditing, setIsEditing] = useState(false);
+  const displayedTextValue = isEditing ? textValue : formatValue(value);
 
   const commitTextValue = () => {
-    const parsed = Number(textValue.replace(",", "."));
+    const parsed = Number(displayedTextValue.replace(",", "."));
 
     if (!Number.isFinite(parsed)) {
       setTextValue(formatValue(value));
+      setIsEditing(false);
       return;
     }
 
@@ -66,6 +67,7 @@ export function ParameterSlider({
     onValueChange(nextValue);
     onValueCommit(nextValue);
     setTextValue(formatValue(nextValue));
+    setIsEditing(false);
   };
 
   return (
@@ -78,10 +80,14 @@ export function ParameterSlider({
             mode="flat"
             dense
             selectTextOnFocus
-            keyboardType="decimal-pad"
-            value={textValue}
+            keyboardType={keyboardType}
+            value={displayedTextValue}
             disabled={disabled}
             onChangeText={setTextValue}
+            onFocus={() => {
+              setTextValue(formatValue(value));
+              setIsEditing(true);
+            }}
             onBlur={commitTextValue}
             onSubmitEditing={commitTextValue}
             style={styles.input}

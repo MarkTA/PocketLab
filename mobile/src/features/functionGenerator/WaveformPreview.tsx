@@ -1,6 +1,6 @@
 /* src/features/functionGenerator/WaveformPreview.tsx */
 
-import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type GestureResponderEvent,
   PanResponder,
@@ -103,12 +103,6 @@ export function WaveformPreview({
     maximumTimeSpan
   );
   timeSpanRef.current = resolvedTimeSpan;
-
-  useEffect(() => {
-    setManualTimeSpan((current) =>
-      current === null ? null : clamp(current, minimumTimeSpan, maximumTimeSpan)
-    );
-  }, [maximumTimeSpan, minimumTimeSpan]);
 
   const xAxisPinchResponder = useMemo(
     () =>
@@ -308,8 +302,11 @@ export function WaveformPreview({
     [plotHeight, plotWidth, resolvedTimeSpan, resolvedVoltageSpan]
   );
 
-  const yForVoltage = (voltage: number) =>
-    TOP_MARGIN + ((maxVoltage - voltage) / (maxVoltage - minVoltage)) * plotHeight;
+  const yForVoltage = useCallback(
+    (voltage: number) =>
+      TOP_MARGIN + ((maxVoltage - voltage) / (maxVoltage - minVoltage)) * plotHeight,
+    [maxVoltage, minVoltage, plotHeight]
+  );
 
   const waveformPath = useMemo(() => {
     const points: Point[] = Array.from({ length: SAMPLE_COUNT + 1 }, (_, index) => {
@@ -349,15 +346,13 @@ export function WaveformPreview({
     return waveform === "square" ? buildStepPath(points) : buildLinearPath(points);
   }, [
     halfAmplitude,
-    maxVoltage,
-    minVoltage,
-    plotHeight,
     plotWidth,
     safeFrequencyHz,
     safeOffsetV,
     startTimeSec,
     totalTimeSec,
     waveform,
+    yForVoltage,
   ]);
 
   const xTicks = useMemo(

@@ -39,6 +39,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eslint": "^9.39.0",
+    "eslint-config-expo": "~57.0.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.4",
     "typescript": "~6.0.3"
@@ -49,7 +51,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint",
+    "lint": "eslint .",
     "android:local": "powershell -ExecutionPolicy Bypass -File ./scripts/android-local.ps1",
     "emulator": "powershell -ExecutionPolicy Bypass -File ./scripts/start-emulator.ps1",
     "format": "prettier . --write",
