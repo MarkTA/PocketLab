@@ -2,8 +2,8 @@
   "version": 1,
   "deviceId": "pocketlab-fg-prototype-01",
   "output": {
-    "minimumV": -5.0,
-    "maximumV": 5.0,
+    "minimumV": -5.5,
+    "maximumV": 5.5,
     "zeroCorrectionV": 0.0
   },
   "amplitude": {

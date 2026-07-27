@@ -31,7 +31,7 @@
 
 constexpr char DEVICE_NAME[] = "PocketLab-FG";
 constexpr char MODEL_NAME[] = "PocketLab-FG";
-constexpr char FIRMWARE_VERSION[] = "0.6.6";
+constexpr char FIRMWARE_VERSION[] = "0.7.2";
 constexpr char HARDWARE_VERSION[] = "PROTO-1";
 
 // -----------------------------------------------------------------------------
@@ -69,17 +69,23 @@ constexpr uint32_t MIN_FREQUENCY_HZ = 1;
 constexpr uint32_t MAX_FREQUENCY_HZ = 1000000;
 
 constexpr float MIN_AMPLITUDE_VPP = 0.0f;
-constexpr float MAX_AMPLITUDE_VPP = 4.15f;
+constexpr float MAX_AMPLITUDE_VPP = 10.93f;
 
 /*
- * Interim unipolar output limits. OFFSET is the waveform center voltage
- * relative to ground. These limits will be revised when the bipolar supply
- * and output stage are installed.
+ * OFFSET is the signed waveform center voltage at the final bipolar output.
+ * The AD5626 remains unipolar, so OFFSET_DAC_ZERO_V is added before writing
+ * the DAC. With the measured 4.089 V DAC full scale, this gives a signed
+ * offset command range of -2.027 V to +2.062 V.
+ *
+ * The requested endpoint envelope intentionally extends slightly beyond the
+ * nominal +/-5 V output rails. This permits controlled clipping tests with
+ * the gain-19 stage; it is a command envelope, not a promise of clean swing.
  */
-constexpr float MIN_OFFSET_V = 0.0f;
-constexpr float MAX_OFFSET_V = 4.089f;
-constexpr float MIN_ACTIVE_OUTPUT_V = 0.20f;
-constexpr float MAX_ACTIVE_OUTPUT_V = 4.40f;
+constexpr float OFFSET_DAC_ZERO_V = 2.027f;
+constexpr float MIN_OFFSET_V = -OFFSET_DAC_ZERO_V;
+constexpr float MAX_OFFSET_V = 4.089f - OFFSET_DAC_ZERO_V;
+constexpr float MIN_REQUESTED_OUTPUT_V = -5.50f;
+constexpr float MAX_REQUESTED_OUTPUT_V = 5.50f;
 
 String waveformToString(Waveform waveform);
 
@@ -140,15 +146,30 @@ struct AmplitudeCalibrationPoint {
 };
 
 /*
- * Calibration measured at 1 kHz with the current fixed-gain OP484 stage.
- * Intermediate requested amplitudes are mapped by linear interpolation.
+ * Prototype calibration measured at the final output with a 1 kHz sine,
+ * 0 V offset, and no added load. Positions 0..10 are direct measurements.
+ * Position 27 is the highest verified clean step; position 28 is the first
+ * visibly clipped step. Position 31 retains the intentional overdrive command
+ * endpoint because positions 28..31 are rail-limited near 10 Vpp.
+ *
+ * Intermediate requested amplitudes are mapped to the nearest wiper position
+ * by linear interpolation between calibration points.
  */
 constexpr AmplitudeCalibrationPoint AMPLITUDE_CALIBRATION[] = {
-    {0.0000f, 0},
-    {1.2257f, 8},
-    {2.3481f, 16},
-    {3.2390f, 23},
-    {4.1548f, 31}
+    {0.10526f, 0},
+    {0.47591f, 1},
+    {0.84836f, 2},
+    {1.21180f, 3},
+    {1.57710f, 4},
+    {1.93060f, 5},
+    {2.29320f, 6},
+    {2.63860f, 7},
+    {2.99850f, 8},
+    {3.35210f, 9},
+    {3.71280f, 10},
+    {9.84740f, 27},
+    {9.96440f, 28},
+    {10.93370f, 31}
 };
 
 constexpr size_t AMPLITUDE_CALIBRATION_COUNT =
@@ -204,7 +225,7 @@ bool waveformSupportedByAd9833(Waveform waveform) {
            waveform == Waveform::Square;
 }
 
-bool stateFitsUnipolarOutputEnvelope(
+bool stateFitsOutputEnvelope(
     const FunctionGeneratorState& state
 ) {
     if (!state.outputEnabled) {
@@ -221,16 +242,19 @@ bool stateFitsUnipolarOutputEnvelope(
     const float minimumOutput = state.offsetV - halfAmplitude;
     const float maximumOutput = state.offsetV + halfAmplitude;
 
-    return minimumOutput >= MIN_ACTIVE_OUTPUT_V &&
-           maximumOutput <= MAX_ACTIVE_OUTPUT_V;
+    return minimumOutput >= MIN_REQUESTED_OUTPUT_V &&
+           maximumOutput <= MAX_REQUESTED_OUTPUT_V;
 }
 
 void applyOffset(float offsetV) {
-    const uint16_t code = ad5626.writeVoltage(offsetV);
+    const float dacVoltage = offsetV + OFFSET_DAC_ZERO_V;
+    const uint16_t code = ad5626.writeVoltage(dacVoltage);
 
     Serial.printf(
-        "[AD5626] OFFSET=%.3f V;CODE=%u;CALCULATED=%.4f V\n",
+        "[AD5626] OFFSET=%.3f V;DAC=%.3f V;CODE=%u;"
+        "CALCULATED_DAC=%.4f V\n",
         offsetV,
+        dacVoltage,
         code,
         ad5626.currentVoltage()
     );
@@ -251,7 +275,7 @@ bool applyAd9833State(
         applyOffset(0.0f);
 
         Serial.printf(
-            "[SAFE] Output off; DAC=0.000 V; retained requested "
+            "[SAFE] Output off; signed output=0.000 V; retained requested "
             "OFFSET=%.3f V;WAVE=%s;FREQ=%lu\n",
             state.offsetV,
             waveformToString(state.waveform).c_str(),
@@ -261,7 +285,7 @@ bool applyAd9833State(
         return true;
     }
 
-    if (!stateFitsUnipolarOutputEnvelope(state)) {
+    if (!stateFitsOutputEnvelope(state)) {
         Serial.printf(
             "[OUTPUT] Invalid envelope: OFFSET=%.3f V;AMP=%.3f Vpp\n",
             state.offsetV,
@@ -662,7 +686,7 @@ void handleSetAmplitude(const String& argument) {
 
     if (
         pendingState.outputEnabled &&
-        !stateFitsUnipolarOutputEnvelope(pendingState)
+        !stateFitsOutputEnvelope(pendingState)
     ) {
         sendError("AMPLITUDE_OFFSET_OUT_OF_RANGE");
         return;
@@ -703,7 +727,7 @@ void handleSetOffset(const String& argument) {
 
     if (
         pendingState.outputEnabled &&
-        !stateFitsUnipolarOutputEnvelope(pendingState)
+        !stateFitsOutputEnvelope(pendingState)
     ) {
         sendError("AMPLITUDE_OFFSET_OUT_OF_RANGE");
         return;
@@ -718,7 +742,7 @@ void handleSetOffset(const String& argument) {
     } else {
         applyOffset(0.0f);
         Serial.printf(
-            "[SAFE] Stored requested OFFSET=%.3f V; DAC remains at 0.000 V\n",
+            "[SAFE] Stored requested OFFSET=%.3f V; output remains at 0.000 V\n",
             offsetV
         );
     }
@@ -981,7 +1005,7 @@ void handleSetState(const String& argument) {
 
     if (
         pendingState.outputEnabled &&
-        !stateFitsUnipolarOutputEnvelope(pendingState)
+        !stateFitsOutputEnvelope(pendingState)
     ) {
         sendError("AMPLITUDE_OFFSET_OUT_OF_RANGE");
         return;
@@ -1060,7 +1084,7 @@ void handleOutput(String argument) {
 
         pendingState.outputEnabled = true;
 
-        if (!stateFitsUnipolarOutputEnvelope(pendingState)) {
+        if (!stateFitsOutputEnvelope(pendingState)) {
             sendError("AMPLITUDE_OFFSET_OUT_OF_RANGE");
             return;
         }
@@ -1448,23 +1472,16 @@ ResponseCallbacks responseCallbacks;
 
 void setup() {
     Serial.begin(115200);
-    delay(500);
-
-    Serial.println();
-    Serial.println("================================");
-    Serial.println(" PocketLab BLE Command Server");
-    Serial.println("================================");
 
     // -------------------------------------------------------------------------
-    // Initialize X9C103S in its safe minimum-amplitude state
+    // Establish the physical safe state before waiting for Serial or starting
+    // BLE. The logical state defaults alone do not configure the hardware.
     // -------------------------------------------------------------------------
 
+    // Mute the waveform path first.
     x9c.begin();
 
-    // -------------------------------------------------------------------------
-    // Initialize AD9833 and the shared hardware SPI bus
-    // -------------------------------------------------------------------------
-
+    // Initialize the shared SPI bus and leave the DDS reset and powered down.
     if (!ad9833.begin()) {
         Serial.println(
             "[ERROR] Failed to initialize AD9833"
@@ -1473,13 +1490,31 @@ void setup() {
         return;
     }
 
-    // -------------------------------------------------------------------------
-    // Initialize AD5626 in its calibrated 0 V safe state
-    //
-    // The DAC shares the hardware SPI bus initialized by the AD9833 driver.
-    // -------------------------------------------------------------------------
-
+    /*
+     * AD5626 begin() clears the DAC to 0 V. In the bipolar summing stage that
+     * would produce approximately -OFFSET_DAC_ZERO_V at the final output.
+     * Immediately write the calibrated DAC voltage that represents a signed
+     * 0 V output. The DAC shares the SPI bus initialized above.
+     */
     ad5626.begin();
+    applyOffset(0.0f);
+
+    generatorState.outputEnabled = false;
+
+    Serial.println(
+        "[SAFE] Startup complete; DDS off; amplitude muted; signed output=0.000 V"
+    );
+
+    /*
+     * Allow the USB serial connection to settle only after the analog output
+     * has been placed in its safe state.
+     */
+    delay(500);
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.println(" PocketLab BLE Command Server");
+    Serial.println("================================");
 
     // -------------------------------------------------------------------------
     // Initialize NimBLE

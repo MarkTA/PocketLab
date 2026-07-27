@@ -5,7 +5,7 @@ export const AD9833_LIMITS = {
   maxFrequencyHz: 1_000_000,
   minPeriodSec: 1 / 1_000_000,
   maxPeriodSec: 1,
-} as const;
+} as const; 
 
 export type FunctionGeneratorLimits = {
   minFrequencyHz: number;
@@ -31,11 +31,11 @@ export const FIRMWARE_FUNCTION_GENERATOR_LIMITS: FunctionGeneratorLimits = {
   maxFrequencyHz: 1_000_000,
   dcFrequencyHz: 0,
   minAmplitudeVpp: 0,
-  maxAmplitudeVpp: 4.15,
-  minOffsetV: -2.02,
-  maxOffsetV: 2.06,
-  minimumOutputV: -5,
-  maximumOutputV: 5,
+  maxAmplitudeVpp: 10.93,
+  minOffsetV: -2.027,
+  maxOffsetV: 2.062,
+  minimumOutputV: -5.5,
+  maximumOutputV: 5.5,
 };
 
 // Backward-compatible name for UI code that only needs the firmware limits.

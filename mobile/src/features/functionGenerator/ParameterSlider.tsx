@@ -132,36 +132,38 @@ export function ParameterSlider({
 
       {markers ? (
         <View style={styles.markers}>
-          {markers.map((marker) => {
-            const markerSliderValue = toSliderValue(marker.value);
-            const position =
-              (markerSliderValue - minimumSliderValue) /
-              (maximumSliderValue - minimumSliderValue);
+          {markers
+            .filter(
+              (marker) => marker.value >= minimumValue && marker.value <= maximumValue
+            )
+            .map((marker) => {
+              const markerSliderValue = toSliderValue(marker.value);
+              const position =
+                (markerSliderValue - minimumSliderValue) /
+                (maximumSliderValue - minimumSliderValue);
 
-            return (
-              <Pressable
-                key={`${marker.label}-${marker.value}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Set ${label} to ${marker.label} ${unit}`}
-                disabled={
-                  disabled || marker.value < minimumValue || marker.value > maximumValue
-                }
-                onPress={() => {
-                  const nextValue = clamp(marker.value, minimumValue, maximumValue);
-                  onValueChange(nextValue);
-                  onValueCommit(nextValue);
-                }}
-                style={[styles.marker, { left: `${clamp(position, 0, 1) * 100}%` }]}
-              >
-                <View
-                  style={[styles.markerDot, { backgroundColor: theme.colors.primary }]}
-                />
-                <Text variant="labelSmall" style={styles.markerLabel}>
-                  {marker.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+              return (
+                <Pressable
+                  key={`${marker.label}-${marker.value}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Set ${label} to ${marker.label} ${unit}`}
+                  disabled={disabled}
+                  onPress={() => {
+                    const nextValue = clamp(marker.value, minimumValue, maximumValue);
+                    onValueChange(nextValue);
+                    onValueCommit(nextValue);
+                  }}
+                  style={[styles.marker, { left: `${clamp(position, 0, 1) * 100}%` }]}
+                >
+                  <View
+                    style={[styles.markerDot, { backgroundColor: theme.colors.primary }]}
+                  />
+                  <Text variant="labelSmall" style={styles.markerLabel}>
+                    {marker.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
         </View>
       ) : (
         <View style={styles.rangeRow}>
