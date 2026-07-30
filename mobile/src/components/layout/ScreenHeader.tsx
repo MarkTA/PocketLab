@@ -7,12 +7,15 @@ import { Text } from "react-native-paper";
 type ScreenHeaderProps = {
   title: string;
   subtitle?: string;
+  left?: React.ReactNode;
   right?: React.ReactNode;
 };
 
-export function ScreenHeader({ title, subtitle, right }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, left, right }: ScreenHeaderProps) {
   return (
     <View style={styles.container}>
+      {left ? <View style={styles.left}>{left}</View> : null}
+
       <View style={styles.titleContainer}>
         <Text style={styles.headerText} variant="headlineMedium">
           {title}
@@ -40,6 +43,11 @@ const styles = StyleSheet.create({
 
   titleContainer: {
     flex: 1,
+  },
+
+  left: {
+    flexShrink: 0,
+    marginLeft: -8,
   },
 
   right: {

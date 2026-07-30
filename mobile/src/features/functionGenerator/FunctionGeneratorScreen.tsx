@@ -6,6 +6,7 @@ import { Text } from "react-native-paper";
 
 import { Screen } from "../../components/layout/Screen";
 import { ScreenHeader } from "../../components/layout/ScreenHeader";
+import { DrawerMenuButton } from "../../components/navigation/DrawerMenuButton";
 import { DeviceStatusCard } from "../device/DeviceStatusCard";
 import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
 
@@ -65,6 +66,7 @@ export function FunctionGeneratorScreen() {
           <ScreenHeader
             title="PocketLab"
             subtitle="Function Generator"
+            left={<DrawerMenuButton />}
             right={
               <DeviceStatusCard
                 connected={state.connected}
