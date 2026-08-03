@@ -16,9 +16,9 @@
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+#include <SPI.h>
 #include "Ad9833Driver.h"
 #include "Ad5626Driver.h"
-#include "X9c103sDriver.h"
 
 #include <cerrno>
 #include <cmath>
@@ -31,7 +31,7 @@
 
 constexpr char DEVICE_NAME[] = "PocketLab-FG";
 constexpr char MODEL_NAME[] = "PocketLab-FG";
-constexpr char FIRMWARE_VERSION[] = "0.7.2";
+constexpr char FIRMWARE_VERSION[] = "0.8.1";
 constexpr char HARDWARE_VERSION[] = "PROTO-1";
 
 // -----------------------------------------------------------------------------
@@ -126,57 +126,83 @@ Ad5626Driver ad5626(
 );
 
 // -----------------------------------------------------------------------------
-// X9C103S amplitude control
+// ISL23415 amplitude control
 // -----------------------------------------------------------------------------
 
-constexpr int X9C_CS_PIN = 27;
-constexpr int X9C_INC_PIN = 26;
-constexpr int X9C_UD_PIN = 25;
+constexpr int ISL23415_CS_PIN = 27;
+constexpr uint8_t ISL23415_WRITE_WIPER_COMMAND = 0xC0;
+constexpr uint8_t ISL23415_MIN_POSITION = 0;
+constexpr uint8_t ISL23415_MAX_POSITION = 255;
+constexpr uint32_t ISL23415_SPI_CLOCK_HZ = 1000000;
 constexpr uint32_t SAFE_STOP_SETTLE_MS = 25;
 
-X9c103sDriver x9c(
-    X9C_CS_PIN,
-    X9C_INC_PIN,
-    X9C_UD_PIN
-);
+uint8_t isl23415Position = ISL23415_MIN_POSITION;
+
+void setIsl23415Position(uint8_t position) {
+    // Every device on the shared bus must be inactive before CS is asserted.
+    digitalWrite(AD9833_FSYNC_PIN, HIGH);
+    digitalWrite(AD5626_SYNC_PIN, HIGH);
+
+    SPI.beginTransaction(
+        SPISettings(ISL23415_SPI_CLOCK_HZ, MSBFIRST, SPI_MODE0)
+    );
+    digitalWrite(ISL23415_CS_PIN, LOW);
+    SPI.transfer(ISL23415_WRITE_WIPER_COMMAND);
+    SPI.transfer(position);
+    digitalWrite(ISL23415_CS_PIN, HIGH);
+    SPI.endTransaction();
+
+    isl23415Position = position;
+
+    Serial.printf(
+        "[ISL23415] Wiper=%u/%u\n",
+        isl23415Position,
+        ISL23415_MAX_POSITION
+    );
+}
+
+void muteAmplitude() {
+    setIsl23415Position(ISL23415_MIN_POSITION);
+}
 
 struct AmplitudeCalibrationPoint {
     float outputVpp;
-    int position;
+    uint8_t position;
 };
 
 /*
- * Prototype calibration measured at the final output with a 1 kHz sine,
- * 0 V offset, and no added load. Positions 0..10 are direct measurements.
- * Position 27 is the highest verified clean step; position 28 is the first
- * visibly clipped step. Position 31 retains the intentional overdrive command
- * endpoint because positions 28..31 are rail-limited near 10 Vpp.
+ * Derived from measurements at 1 kHz, sine, 0 V offset, and scope-only load.
+ * Each even 1.00 Vpp division uses the nearest whole wiper position calculated
+ * from the measured transfer curve. Intermediate requests use piecewise-linear
+ * interpolation between these easy-to-retest calibration targets.
  *
- * Intermediate requested amplitudes are mapped to the nearest wiper position
- * by linear interpolation between calibration points.
+ * Position 0 is intentionally retained as the 0.00 Vpp command even though
+ * finite endpoint feedthrough leaves a small residual waveform while enabled.
+ * OUTPUT OFF remains the true mute state.
+ *
+ * The 10.00 Vpp target is in the characterized clipping region and is retained
+ * only for experimental over-range operation. The recommended clean maximum
+ * remains 9.50 Vpp at 0 V offset.
  */
 constexpr AmplitudeCalibrationPoint AMPLITUDE_CALIBRATION[] = {
-    {0.10526f, 0},
-    {0.47591f, 1},
-    {0.84836f, 2},
-    {1.21180f, 3},
-    {1.57710f, 4},
-    {1.93060f, 5},
-    {2.29320f, 6},
-    {2.63860f, 7},
-    {2.99850f, 8},
-    {3.35210f, 9},
-    {3.71280f, 10},
-    {9.84740f, 27},
-    {9.96440f, 28},
-    {10.93370f, 31}
+    {0.0f, ISL23415_MIN_POSITION},
+    {1.0f, 20},
+    {2.0f, 43},
+    {3.0f, 67},
+    {4.0f, 90},
+    {5.0f, 114},
+    {6.0f, 137},
+    {7.0f, 160},
+    {8.0f, 183},
+    {9.0f, 205},
+    {10.0f, 227}
 };
 
 constexpr size_t AMPLITUDE_CALIBRATION_COUNT =
     sizeof(AMPLITUDE_CALIBRATION) /
     sizeof(AMPLITUDE_CALIBRATION[0]);
 
-int amplitudeToX9cPosition(float amplitudeVpp) {
+uint8_t amplitudeToIsl23415Position(float amplitudeVpp) {
     if (amplitudeVpp <= AMPLITUDE_CALIBRATION[0].outputVpp) {
         return AMPLITUDE_CALIBRATION[0].position;
     }
@@ -196,26 +222,44 @@ int amplitudeToX9cPosition(float amplitudeVpp) {
                 lower.position +
                 fraction * (upper.position - lower.position);
 
-            return constrain(
-                static_cast<int>(lroundf(interpolatedPosition)),
-                0,
-                X9c103sDriver::MAX_POSITION
-            );
+            return static_cast<uint8_t>(constrain(
+                static_cast<long>(lroundf(interpolatedPosition)),
+                static_cast<long>(ISL23415_MIN_POSITION),
+                static_cast<long>(ISL23415_MAX_POSITION)
+            ));
         }
     }
 
-    return X9c103sDriver::MAX_POSITION;
+    // Preserve controlled over-range operation above the final table entry.
+    const AmplitudeCalibrationPoint& lower =
+        AMPLITUDE_CALIBRATION[AMPLITUDE_CALIBRATION_COUNT - 2];
+    const AmplitudeCalibrationPoint& upper =
+        AMPLITUDE_CALIBRATION[AMPLITUDE_CALIBRATION_COUNT - 1];
+
+    const float fraction =
+        (amplitudeVpp - lower.outputVpp) /
+        (upper.outputVpp - lower.outputVpp);
+
+    const float extrapolatedPosition =
+        lower.position +
+        fraction * (upper.position - lower.position);
+
+    return static_cast<uint8_t>(constrain(
+        static_cast<long>(lroundf(extrapolatedPosition)),
+        static_cast<long>(ISL23415_MIN_POSITION),
+        static_cast<long>(ISL23415_MAX_POSITION)
+    ));
 }
 
 void applyAmplitude(float amplitudeVpp) {
-    const int position = amplitudeToX9cPosition(amplitudeVpp);
-    x9c.setPosition(position);
+    const uint8_t position = amplitudeToIsl23415Position(amplitudeVpp);
+    setIsl23415Position(position);
 
     Serial.printf(
-        "[X9C] Requested amplitude %.2f Vpp mapped to position %d/%d\n",
+        "[ISL23415] Requested amplitude %.2f Vpp mapped to position %u/%u\n",
         amplitudeVpp,
         position,
-        X9c103sDriver::MAX_POSITION
+        ISL23415_MAX_POSITION
     );
 }
 
@@ -269,7 +313,7 @@ bool applyAd9833State(
      * before powering the DDS down.
      */
     if (!state.outputEnabled) {
-        x9c.forceToVL();
+        muteAmplitude();
         delay(SAFE_STOP_SETTLE_MS);
         ad9833.stop();
         applyOffset(0.0f);
@@ -295,7 +339,7 @@ bool applyAd9833State(
     }
 
     if (state.waveform == Waveform::DC) {
-        x9c.forceToVL();
+        muteAmplitude();
         ad9833.stop();
         applyOffset(state.offsetV);
 
@@ -332,7 +376,7 @@ bool applyAd9833State(
     applyAmplitude(state.amplitudeVpp);
 
     if (!ad9833.apply(state.frequencyHz, state.waveform)) {
-        x9c.forceToVL();
+        muteAmplitude();
         return false;
     }
 
@@ -1320,10 +1364,10 @@ public:
          * otherwise leave VOUT near 3.3 V while RESET is asserted.
         */
         generatorState.outputEnabled = false;
-        x9c.forceToVL();
+        muteAmplitude();
         delay(SAFE_STOP_SETTLE_MS);
         ad9833.stop();
-        ad5626.clear();
+        applyOffset(0.0f);
 
         /*
          * Advertising restarts automatically because setup() calls:
@@ -1478,10 +1522,30 @@ void setup() {
     // BLE. The logical state defaults alone do not configure the hardware.
     // -------------------------------------------------------------------------
 
-    // Mute the waveform path first.
-    x9c.begin();
+    /*
+     * Establish every shared-bus select as inactive before starting SPI.
+     * GPIO25 and GPIO26 from the X9C are intentionally no longer used.
+     */
+    digitalWrite(ISL23415_CS_PIN, HIGH);
+    digitalWrite(AD9833_FSYNC_PIN, HIGH);
+    digitalWrite(AD5626_SYNC_PIN, HIGH);
+    pinMode(ISL23415_CS_PIN, OUTPUT);
+    pinMode(AD9833_FSYNC_PIN, OUTPUT);
+    pinMode(AD5626_SYNC_PIN, OUTPUT);
 
-    // Initialize the shared SPI bus and leave the DDS reset and powered down.
+    /*
+     * The ISL23415 powers up at midscale. Start the shared bus and command
+     * position 0 before configuring the waveform and offset sources.
+     */
+    SPI.begin(
+        SHARED_SPI_SCLK_PIN,
+        -1,
+        SHARED_SPI_DATA_PIN,
+        ISL23415_CS_PIN
+    );
+    muteAmplitude();
+
+    // Leave the DDS reset and powered down.
     if (!ad9833.begin()) {
         Serial.println(
             "[ERROR] Failed to initialize AD9833"
@@ -1697,6 +1761,8 @@ void setup() {
     Serial.println(
         "[SERIAL] Command input ready at 115200 baud; use Newline"
     );
+
+    //btStop();  // Disable ESP32 Bluetooth radio for testing
 }
 
 // -----------------------------------------------------------------------------
