@@ -11,6 +11,16 @@ export type PocketLabInfo = {
   hardwareVersion: string;
 };
 
+export type PocketLabFeature =
+  | "DMM"
+  | "FG"
+  | "SCOPE"
+  | "LOGIC";
+
+export type PocketLabCapabilities = {
+  features: PocketLabFeature[];
+};
+
 export type PocketLabSettings = {
   frequencyHz: number;
   amplitudeVpp: number;
@@ -21,6 +31,36 @@ export type PocketLabSettings = {
 export type PocketLabState = PocketLabSettings & {
   outputEnabled: boolean;
 };
+
+const KNOWN_FEATURES: readonly PocketLabFeature[] = [
+  "DMM",
+  "FG",
+  "SCOPE",
+  "LOGIC",
+];
+
+export async function getPocketLabFeatures(): Promise<PocketLabCapabilities> {
+  const response = await bleDiagnostic.request("FEATURES");
+
+  throwIfProtocolError(response);
+
+  if (!response.startsWith("FEATURES ")) {
+    throw new Error(`Unexpected FEATURES response: "${response}"`);
+  }
+
+  const rawFeatures = response
+    .slice("FEATURES ".length)
+    .split(",")
+    .map((feature) => feature.trim())
+    .filter(Boolean);
+
+  const features = rawFeatures.filter(
+    (feature): feature is PocketLabFeature =>
+      KNOWN_FEATURES.includes(feature as PocketLabFeature)
+  );
+
+  return { features };
+}
 
 const VALID_WAVEFORMS: readonly PocketLabWaveform[] = [
   "SINE",
