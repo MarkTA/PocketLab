@@ -1,6 +1,6 @@
 import { Drawer } from "expo-router/drawer";
-import { Icon } from "react-native-paper";
 
+import { Icon } from "react-native-paper";
 import { pocketLabColors } from "@/themes/theme";
 
 export default function DrawerLayout() {
@@ -8,17 +8,27 @@ export default function DrawerLayout() {
     <Drawer
       screenOptions={{
         headerShown: false,
-        drawerActiveTintColor: pocketLabColors.darkTeal,
-        drawerActiveBackgroundColor: "#E7F2F4",
-        drawerInactiveTintColor: pocketLabColors.mutedText,
+
+        drawerActiveTintColor:
+          pocketLabColors.darkTeal,
+
+        drawerActiveBackgroundColor:
+          "#E7F2F4",
+
+        drawerInactiveTintColor:
+          pocketLabColors.mutedText,
+
         drawerLabelStyle: {
           marginLeft: -12,
           fontSize: 15,
           fontWeight: "600",
         },
+
         drawerStyle: {
-          backgroundColor: pocketLabColors.surface,
+          backgroundColor:
+            pocketLabColors.surface,
         },
+
         drawerType: "front",
         swipeEdgeWidth: 48,
       }}
@@ -28,24 +38,64 @@ export default function DrawerLayout() {
         options={{
           title: "Function Generator",
           drawerLabel: "Function Generator",
-          drawerIcon: ({ color, size }) => (
+
+          drawerIcon: ({
+            color,
+            size,
+          }) => (
             <Icon
               source="sine-wave"
-              color={typeof color === "string" ? color : pocketLabColors.darkTeal}
+              color={
+                typeof color === "string"
+                  ? color
+                  : pocketLabColors.darkTeal
+              }
               size={size}
             />
           ),
         }}
       />
+
+      <Drawer.Screen
+        name="dmm"
+        options={{
+          title: "Digital Multimeter",
+          drawerLabel: "Digital Multimeter",
+
+          drawerIcon: ({
+            color,
+            size,
+          }) => (
+            <Icon
+              source="gauge"
+              color={
+                typeof color === "string"
+                  ? color
+                  : pocketLabColors.darkTeal
+              }
+              size={size}
+            />
+          ),
+        }}
+      />
+
       <Drawer.Screen
         name="calculator"
         options={{
           title: "EE Calculator",
           drawerLabel: "EE Calculator",
-          drawerIcon: ({ color, size }) => (
+
+          drawerIcon: ({
+            color,
+            size,
+          }) => (
             <Icon
               source="calculator-variant-outline"
-              color={typeof color === "string" ? color : pocketLabColors.darkTeal}
+              color={
+                typeof color === "string"
+                  ? color
+                  : pocketLabColors.darkTeal
+              }
               size={size}
             />
           ),
