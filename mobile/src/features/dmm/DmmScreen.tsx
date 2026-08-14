@@ -247,7 +247,10 @@ export function DmmScreen() {
                 icon="flash-outline"
                 style={styles.modeButton}
                 contentStyle={styles.modeButtonContent}
-                disabled
+                disabled={
+                  !connectedAndReady ||
+                  mode !== "VOLTAGE"
+                }
                 onPress={() => undefined}
               >
                 Voltage
@@ -258,8 +261,9 @@ export function DmmScreen() {
               variant="bodySmall"
               style={styles.modeHint}
             >
-              Voltage measurement will be enabled when the voltage
-              front end is connected.
+              {mode === "VOLTAGE"
+                ? "Voltage prototype firmware active. Hardware mode switching will be enabled after relay/MUX integration."
+                : "Resistance prototype firmware active. Hardware mode switching will be enabled after relay/MUX integration."}
             </Text>
           </View>
 
@@ -304,8 +308,7 @@ export function DmmScreen() {
               loading={readingPending}
               disabled={
                 !connectedAndReady ||
-                readingPending ||
-                mode !== "RESISTANCE"
+                readingPending
               }
               onPress={() => {
                 void readMeasurement();
