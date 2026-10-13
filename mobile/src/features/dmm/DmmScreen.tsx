@@ -1,6 +1,6 @@
 /* src/features/dmm/DmmScreen.tsx */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button, Text } from "react-native-paper";
 
@@ -33,10 +33,14 @@ export function DmmScreen() {
 
   const connectedAndReady = state.connected && dmmSupported && dmmState !== null;
 
+  const initialReadAttempted = useRef(false);
+
   const readMeasurement = useCallback(async () => {
     if (!connectedAndReady || readingPending) {
       return;
     }
+
+    initialReadAttempted.current = true;
 
     setReadingPending(true);
     setReadingError(null);
@@ -55,16 +59,30 @@ export function DmmScreen() {
   }, [connectedAndReady, readingPending, requestDmmReading]);
 
   /*
-   * Take one measurement automatically when the DMM screen first becomes
-   * ready. After that, measurements are manual with the Read button.
+   * Automatically request one measurement when the DMM
+   * becomes ready.
    *
-   * We can replace this with continuous BLE streaming later.
+   * Schedule the request asynchronously to avoid
+   * synchronous state updates inside the effect.
+   *
+   * Reset the flag when the device becomes unavailable.
    */
   useEffect(() => {
-    if (connectedAndReady && dmmReading === null && !readingPending) {
-      void readMeasurement();
+    if (!connectedAndReady) {
+      initialReadAttempted.current = false;
+      return;
     }
-  }, [connectedAndReady, dmmReading, readingPending, readMeasurement]);
+
+    if (dmmReading !== null || initialReadAttempted.current) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      void readMeasurement();
+    }, 0);
+
+    return () => clearTimeout(timeout);
+  }, [connectedAndReady, dmmReading, readMeasurement]);
 
   const formattedReading = useMemo(() => {
     if (!dmmReading) {

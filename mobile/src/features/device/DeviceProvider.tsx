@@ -20,6 +20,15 @@ import {
 import type { FunctionGeneratorState, Waveform } from "../../types/pocketLab";
 
 import { bleDiagnostic } from "./bleClient";
+import type {
+  DeviceContextValue,
+  DmmMode,
+  DmmReading,
+  DmmState,
+  FunctionGeneratorSettings,
+} from "./deviceTypes.ts";
+import { parseDmmReading, parseDmmState } from "./dmm/dmmProtocol";
+
 import {
   getPocketLabFeatures,
   getPocketLabInfo,
@@ -37,58 +46,13 @@ import {
   type PocketLabWaveform,
 } from "./pocketLabProtocol";
 
-export type FunctionGeneratorSettings = {
-  frequencyHz: number;
-  amplitudeVpp: number;
-  offsetV: number;
-  waveform: Waveform;
-};
-
-export type DmmMode = "RESISTANCE" | "VOLTAGE";
-
-export type DmmState = {
-  mode: DmmMode;
-  range: string;
-  rrefOhms: number | null;
-};
-
-export type DmmReading = {
-  value: number | null;
-  unit: "OHM" | "V";
-  overload: boolean;
-};
-
-type DeviceContextValue = {
-  state: FunctionGeneratorState;
-
-  deviceInfo: PocketLabInfo | null;
-  capabilities: PocketLabCapabilities | null;
-
-  dmmReading: DmmReading | null;
-  requestDmmReading: () => Promise<DmmReading>;
-
-  dmmState: DmmState | null;
-  requestDmmState: () => Promise<DmmState>;
-  setDmmMode: (mode: DmmMode) => Promise<DmmState>;
-
-  scanning: boolean;
-  reconnecting: boolean;
-  discoveredDevices: Device[];
-
-  scanForDevices: () => Promise<void>;
-  stopScan: () => void;
-  connect: (device: Device) => Promise<void>;
-  disconnect: () => Promise<void>;
-  testWrite: () => Promise<void>;
-
-  setGeneratorSettings: (settings: FunctionGeneratorSettings) => Promise<void>;
-
-  setOffset: (volts: number) => Promise<void>;
-  setFrequency: (hz: number) => Promise<void>;
-  setAmplitude: (vpp: number) => Promise<void>;
-  setWaveform: (waveform: Waveform) => Promise<void>;
-  setOutputEnabled: (enabled: boolean) => Promise<void>;
-};
+// Preserve existing type imports from DeviceProvider.tsx.
+export type {
+  DmmMode,
+  DmmReading,
+  DmmState,
+  FunctionGeneratorSettings,
+} from "./deviceTypes.ts";
 
 const initialState: FunctionGeneratorState = {
   connected: false,
@@ -182,61 +146,6 @@ function normalizeGeneratorSettings(
   return {
     ...settings,
     frequencyHz: Math.max(1, Math.round(settings.frequencyHz)),
-  };
-}
-
-function parseDmmState(response: string): DmmState {
-  const prefix = "DMM:STATE ";
-
-  if (!response.startsWith(prefix)) {
-    throw new Error(`Unexpected DMM state response: "${response}"`);
-  }
-
-  const fields = response
-    .slice(prefix.length)
-    .split(";")
-    .map((field) => field.trim())
-    .filter(Boolean);
-
-  const values = new Map<string, string>();
-
-  for (const field of fields) {
-    const separatorIndex = field.indexOf("=");
-
-    if (separatorIndex < 0) {
-      continue;
-    }
-
-    const key = field.slice(0, separatorIndex).trim();
-    const value = field.slice(separatorIndex + 1).trim();
-
-    values.set(key, value);
-  }
-
-  const mode = values.get("MODE");
-
-  if (mode !== "RESISTANCE" && mode !== "VOLTAGE") {
-    throw new Error(`Invalid DMM mode in response: "${response}"`);
-  }
-
-  const range = values.get("RANGE");
-
-  if (!range) {
-    throw new Error(`Missing DMM range in response: "${response}"`);
-  }
-
-  const rrefRaw = values.get("RREF");
-
-  const rrefOhms = rrefRaw !== undefined ? Number(rrefRaw) : null;
-
-  if (rrefOhms !== null && !Number.isFinite(rrefOhms)) {
-    throw new Error(`Invalid DMM RREF in response: "${response}"`);
-  }
-
-  return {
-    mode,
-    range,
-    rrefOhms,
   };
 }
 
@@ -359,95 +268,11 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
     console.log("[DMM] Reading response:", response);
 
-    const prefix = "DMM:VALUE ";
+    const { reading, inferredState } = parseDmmReading(response);
 
-    if (!response.startsWith(prefix)) {
-      throw new Error(`Unexpected DMM reading response: "${response}"`);
+    if (inferredState) {
+      setDmmState(inferredState);
     }
-
-    const payload = response.slice(prefix.length);
-
-    const fields = payload
-      .split(";")
-      .map((field) => field.trim())
-      .filter(Boolean);
-
-    if (fields.length === 0) {
-      throw new Error(`Missing DMM value in response: "${response}"`);
-    }
-
-    const rawValue = fields[0];
-
-    const values = new Map<string, string>();
-
-    for (const field of fields.slice(1)) {
-      const separatorIndex = field.indexOf("=");
-
-      if (separatorIndex < 0) {
-        continue;
-      }
-
-      const key = field.slice(0, separatorIndex).trim();
-
-      const fieldValue = field.slice(separatorIndex + 1).trim();
-
-      values.set(key, fieldValue);
-    }
-
-    const unit = values.get("UNIT");
-
-    const range = values.get("RANGE");
-    const rrefRaw = values.get("RREF");
-
-    if (unit === "OHM" && range && rrefRaw !== undefined) {
-      const rrefOhms = Number(rrefRaw);
-
-      if (Number.isFinite(rrefOhms)) {
-        setDmmState({
-          mode: "RESISTANCE",
-          range,
-          rrefOhms,
-        });
-      }
-    }
-
-    if (unit !== "OHM" && unit !== "V") {
-      throw new Error(`Invalid DMM unit in response: "${response}"`);
-    }
-
-    /*
-     * OL is a valid resistance measurement state,
-     * not an error.
-     */
-    if (rawValue === "OL") {
-      if (unit !== "OHM") {
-        throw new Error(`OL is only valid for resistance: "${response}"`);
-      }
-
-      const reading: DmmReading = {
-        value: null,
-        unit,
-        overload: true,
-      };
-
-      setDmmReading(reading);
-
-      console.log("[DMM] Reading updated:", reading);
-
-      return reading;
-    }
-
-    const value = Number(rawValue);
-
-    if (!Number.isFinite(value)) {
-      throw new Error(`Invalid DMM value in response: "${response}"`);
-    }
-
-    const reading: DmmReading = {
-      value,
-      unit,
-      overload: false,
-    };
 
     setDmmReading(reading);
 
