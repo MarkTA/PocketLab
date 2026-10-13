@@ -16,5 +16,7 @@ docs/**/*.jpeg
 docs/**/*.JPG
 docs/**/*.JPEG
 
-# python venv
-.venv/
+
+# Altium Projects
+
+/hardware/
