@@ -1,22 +1,9 @@
 /* src/features/device/DeviceProvider.tsx */
 
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-import type { Device } from "react-native-ble-plx";
+import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 import { ACTIVE_CALIBRATION_PROFILE } from "../../calibration/activeCalibration";
-import {
-  fromHardwareGeneratorSettings,
-  toHardwareGeneratorSettings,
-} from "../../calibration/calibrationTransforms";
+import { toHardwareGeneratorSettings } from "../../calibration/calibrationTransforms";
 import type { FunctionGeneratorState, Waveform } from "../../types/pocketLab";
 
 import { bleDiagnostic } from "./bleClient";
@@ -26,23 +13,18 @@ import type {
   DmmReading,
   DmmState,
   FunctionGeneratorSettings,
-} from "./deviceTypes.ts";
+} from "./deviceTypes";
 import { parseDmmReading, parseDmmState } from "./dmm/dmmProtocol";
+import { useBleConnection } from "./hooks/useBleConnection";
+import { useBleScanner } from "./hooks/useBleScanner";
 
 import {
-  getPocketLabFeatures,
-  getPocketLabInfo,
-  getPocketLabState,
-  pingPocketLab,
   setPocketLabAmplitude,
   setPocketLabFrequency,
   setPocketLabOffset,
   setPocketLabOutput,
   setPocketLabSettings,
-  type PocketLabCapabilities,
-  type PocketLabInfo,
   type PocketLabSettings,
-  type PocketLabState,
   type PocketLabWaveform,
 } from "./pocketLabProtocol";
 
@@ -52,7 +34,7 @@ export type {
   DmmReading,
   DmmState,
   FunctionGeneratorSettings,
-} from "./deviceTypes.ts";
+} from "./deviceTypes";
 
 const initialState: FunctionGeneratorState = {
   connected: false,
@@ -64,8 +46,6 @@ const initialState: FunctionGeneratorState = {
   outputEnabled: false,
 };
 
-const SCAN_DURATION_MS = 10_000;
-
 const DeviceContext = createContext<DeviceContextValue | null>(null);
 
 const UI_TO_PROTOCOL_WAVEFORM: Record<Waveform, PocketLabWaveform> = {
@@ -76,35 +56,6 @@ const UI_TO_PROTOCOL_WAVEFORM: Record<Waveform, PocketLabWaveform> = {
   rampDown: "RAMP_DOWN",
   dc: "DC",
 };
-
-const PROTOCOL_TO_UI_WAVEFORM: Record<PocketLabWaveform, Waveform> = {
-  SINE: "sine",
-  SQUARE: "square",
-  TRIANGLE: "triangle",
-  RAMP_UP: "rampUp",
-  RAMP_DOWN: "rampDown",
-  DC: "dc",
-};
-
-function toUiState(
-  deviceState: PocketLabState
-): Pick<
-  FunctionGeneratorState,
-  "frequencyHz" | "amplitudeVpp" | "offsetV" | "waveform" | "outputEnabled"
-> {
-  const requestedState = fromHardwareGeneratorSettings(
-    deviceState,
-    ACTIVE_CALIBRATION_PROFILE
-  );
-
-  return {
-    frequencyHz: requestedState.frequencyHz,
-    amplitudeVpp: requestedState.amplitudeVpp,
-    offsetV: requestedState.offsetV,
-    waveform: PROTOCOL_TO_UI_WAVEFORM[deviceState.waveform],
-    outputEnabled: requestedState.outputEnabled,
-  };
-}
 
 function toProtocolSettings(settings: FunctionGeneratorSettings): PocketLabSettings {
   const normalizedSettings =
@@ -152,76 +103,11 @@ function normalizeGeneratorSettings(
 export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<FunctionGeneratorState>(initialState);
 
-  const [deviceInfo, setDeviceInfo] = useState<PocketLabInfo | null>(null);
-
   const [dmmReading, setDmmReading] = useState<DmmReading | null>(null);
-
-  const [capabilities, setCapabilities] = useState<PocketLabCapabilities | null>(null);
 
   const [dmmState, setDmmState] = useState<DmmState | null>(null);
 
-  const [scanning, setScanning] = useState(false);
-  const [reconnecting, setReconnecting] = useState(false);
-  const [discoveredDevices, setDiscoveredDevices] = useState<Device[]>([]);
-
-  const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearScanTimeout = useCallback(() => {
-    if (!scanTimeoutRef.current) {
-      return;
-    }
-
-    clearTimeout(scanTimeoutRef.current);
-    scanTimeoutRef.current = null;
-  }, []);
-
-  const stopScan = useCallback(() => {
-    clearScanTimeout();
-    bleDiagnostic.stopScan();
-    setScanning(false);
-  }, [clearScanTimeout]);
-
-  useEffect(() => {
-    return () => {
-      clearScanTimeout();
-      bleDiagnostic.stopScan();
-    };
-  }, [clearScanTimeout]);
-
-  const scanForDevices = useCallback(async (): Promise<void> => {
-    clearScanTimeout();
-    setDiscoveredDevices([]);
-    setScanning(true);
-
-    try {
-      await bleDiagnostic.scanForPocketLab((device) => {
-        setDiscoveredDevices((previousDevices) => {
-          const existingIndex = previousDevices.findIndex(
-            (existingDevice) => existingDevice.id === device.id
-          );
-
-          if (existingIndex >= 0) {
-            const updatedDevices = [...previousDevices];
-            updatedDevices[existingIndex] = device;
-            return updatedDevices;
-          }
-
-          return [...previousDevices, device];
-        });
-      });
-
-      scanTimeoutRef.current = setTimeout(() => {
-        bleDiagnostic.stopScan();
-        setScanning(false);
-        scanTimeoutRef.current = null;
-      }, SCAN_DURATION_MS);
-    } catch (error) {
-      bleDiagnostic.stopScan();
-      setScanning(false);
-      clearScanTimeout();
-      throw error;
-    }
-  }, [clearScanTimeout]);
+  const { scanning, discoveredDevices, scanForDevices, stopScan } = useBleScanner();
 
   const requestDmmState = useCallback(async (): Promise<DmmState> => {
     console.log("[DMM] Requesting state...");
@@ -281,179 +167,15 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     return reading;
   }, []);
 
-  const identifyDevice = useCallback(async (): Promise<PocketLabInfo> => {
-    console.log("### POCKETLAB BASE HANDSHAKE ###");
-
-    await pingPocketLab();
-
-    const info = await getPocketLabInfo();
-    const deviceCapabilities = await getPocketLabFeatures();
-
-    setDeviceInfo(info);
-    setCapabilities(deviceCapabilities);
-
-    console.log("[DEVICE PROVIDER] PocketLab identified:", info);
-
-    console.log("[DEVICE PROVIDER] PocketLab capabilities:", deviceCapabilities);
-
-    if (deviceCapabilities.features.includes("DMM")) {
-      await requestDmmState();
-    } else {
-      setDmmState(null);
-    }
-
-    return info;
-  }, [requestDmmState]);
-
-  const synchronizeGeneratorState = useCallback(async (): Promise<void> => {
-    const deviceState = await getPocketLabState();
-
-    setState((previousState) => ({
-      ...previousState,
-      ...toUiState(deviceState),
-    }));
-
-    console.log("[DEVICE PROVIDER] Generator state synchronized:", deviceState);
-  }, []);
-
-  const connect = useCallback(
-    async (device: Device): Promise<void> => {
-      stopScan();
-      setReconnecting(false);
-
-      try {
-        const connectedDevice = await bleDiagnostic.connect(
-          device,
-
-          (error) => {
-            if (error) {
-              console.error("[DEVICE PROVIDER] Connection lost:", error);
-            } else {
-              console.log("[DEVICE PROVIDER] Device disconnected");
-            }
-
-            setReconnecting(true);
-
-            setDeviceInfo(null);
-            setCapabilities(null);
-            setDmmState(null);
-
-            setState((previousState) => ({
-              ...previousState,
-              connected: false,
-              outputEnabled: false,
-            }));
-          },
-
-          () => {
-            console.log("[DEVICE PROVIDER] Attempting to reconnect");
-
-            setReconnecting(true);
-
-            setDeviceInfo(null);
-            setCapabilities(null);
-            setDmmState(null);
-
-            setState((previousState) => ({
-              ...previousState,
-              connected: false,
-              outputEnabled: false,
-            }));
-          },
-
-          (reconnectedDevice) => {
-            console.log("[DEVICE PROVIDER] Reconnected successfully");
-
-            setReconnecting(false);
-
-            setState((previousState) => ({
-              ...previousState,
-              connected: true,
-              deviceName:
-                reconnectedDevice.name ??
-                reconnectedDevice.localName ??
-                previousState.deviceName ??
-                "PocketLab Device",
-            }));
-
-            void identifyDevice().catch((error) => {
-              console.error("[DEVICE PROVIDER] Reconnect identification failed:", error);
-            });
-          }
-        );
-
-        setReconnecting(false);
-
-        setState((previousState) => ({
-          ...previousState,
-          connected: true,
-          deviceName:
-            connectedDevice.name ??
-            connectedDevice.localName ??
-            device.name ??
-            device.localName ??
-            "PocketLab Device",
-        }));
-
-        console.log(
-          "[DEVICE PROVIDER] Connected to:",
-          connectedDevice.name ?? connectedDevice.localName ?? connectedDevice.id
-        );
-
-        const info = await identifyDevice();
-
-        console.log("[DEVICE PROVIDER] Base device ready:", info);
-      } catch (error) {
-        setReconnecting(false);
-
-        setDeviceInfo(null);
-        setCapabilities(null);
-        setDmmState(null);
-
-        setState((previousState) => ({
-          ...previousState,
-          connected: false,
-          outputEnabled: false,
-        }));
-
-        throw error;
-      }
-    },
-    [stopScan, identifyDevice]
-  );
-
-  const disconnect = useCallback(async (): Promise<void> => {
-    stopScan();
-    setReconnecting(false);
-    setDmmReading(null);
-
-    try {
-      await bleDiagnostic.request("POWER:SHUTDOWN");
-
-      await bleDiagnostic.disconnect();
-    } finally {
-      setDeviceInfo(null);
-      setCapabilities(null);
-      setDmmState(null);
-
-      setState((previousState) => ({
-        ...previousState,
-        connected: false,
-        deviceName: null,
-        outputEnabled: false,
-      }));
-    }
-  }, [stopScan]);
-
-  const testWrite = useCallback(async (): Promise<void> => {
-    await pingPocketLab();
-
-    const info = await getPocketLabInfo();
-
-    setDeviceInfo(info);
-
-    console.log("[POCKETLAB] Device info:", info);
-  }, []);
+  const { deviceInfo, capabilities, reconnecting, connect, disconnect, testWrite } =
+    useBleConnection({
+      stopScan,
+      scanForDevices,
+      requestDmmState,
+      setDmmState,
+      setDmmReading,
+      setGeneratorState: setState,
+    });
 
   const setGeneratorSettings = useCallback(
     async (settings: FunctionGeneratorSettings): Promise<void> => {
