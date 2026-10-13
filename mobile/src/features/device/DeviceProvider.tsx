@@ -1,14 +1,6 @@
 /* src/features/device/DeviceProvider.tsx */
 
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 import type { Device } from "react-native-ble-plx";
 
@@ -26,8 +18,9 @@ import type {
   DmmReading,
   DmmState,
   FunctionGeneratorSettings,
-} from "./deviceTypes.ts";
+} from "./deviceTypes";
 import { parseDmmReading, parseDmmState } from "./dmm/dmmProtocol";
+import { useBleScanner } from "./hooks/useBleScanner";
 
 import {
   getPocketLabFeatures,
@@ -52,7 +45,7 @@ export type {
   DmmReading,
   DmmState,
   FunctionGeneratorSettings,
-} from "./deviceTypes.ts";
+} from "./deviceTypes";
 
 const initialState: FunctionGeneratorState = {
   connected: false,
@@ -63,8 +56,6 @@ const initialState: FunctionGeneratorState = {
   waveform: "sine",
   outputEnabled: false,
 };
-
-const SCAN_DURATION_MS = 10_000;
 
 const DeviceContext = createContext<DeviceContextValue | null>(null);
 
@@ -160,68 +151,9 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
   const [dmmState, setDmmState] = useState<DmmState | null>(null);
 
-  const [scanning, setScanning] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
-  const [discoveredDevices, setDiscoveredDevices] = useState<Device[]>([]);
 
-  const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearScanTimeout = useCallback(() => {
-    if (!scanTimeoutRef.current) {
-      return;
-    }
-
-    clearTimeout(scanTimeoutRef.current);
-    scanTimeoutRef.current = null;
-  }, []);
-
-  const stopScan = useCallback(() => {
-    clearScanTimeout();
-    bleDiagnostic.stopScan();
-    setScanning(false);
-  }, [clearScanTimeout]);
-
-  useEffect(() => {
-    return () => {
-      clearScanTimeout();
-      bleDiagnostic.stopScan();
-    };
-  }, [clearScanTimeout]);
-
-  const scanForDevices = useCallback(async (): Promise<void> => {
-    clearScanTimeout();
-    setDiscoveredDevices([]);
-    setScanning(true);
-
-    try {
-      await bleDiagnostic.scanForPocketLab((device) => {
-        setDiscoveredDevices((previousDevices) => {
-          const existingIndex = previousDevices.findIndex(
-            (existingDevice) => existingDevice.id === device.id
-          );
-
-          if (existingIndex >= 0) {
-            const updatedDevices = [...previousDevices];
-            updatedDevices[existingIndex] = device;
-            return updatedDevices;
-          }
-
-          return [...previousDevices, device];
-        });
-      });
-
-      scanTimeoutRef.current = setTimeout(() => {
-        bleDiagnostic.stopScan();
-        setScanning(false);
-        scanTimeoutRef.current = null;
-      }, SCAN_DURATION_MS);
-    } catch (error) {
-      bleDiagnostic.stopScan();
-      setScanning(false);
-      clearScanTimeout();
-      throw error;
-    }
-  }, [clearScanTimeout]);
+  const { scanning, discoveredDevices, scanForDevices, stopScan } = useBleScanner();
 
   const requestDmmState = useCallback(async (): Promise<DmmState> => {
     console.log("[DMM] Requesting state...");
@@ -427,9 +359,15 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     setReconnecting(false);
     setDmmReading(null);
 
+    // Shutdown may cut the BLE link before the response arrives.
+    // We should still disconnect locally and refresh the scan results.
     try {
       await bleDiagnostic.request("POWER:SHUTDOWN");
+    } catch (error) {
+      console.warn("[DEVICE PROVIDER] Shutdown request did not complete:", error);
+    }
 
+    try {
       await bleDiagnostic.disconnect();
     } finally {
       setDeviceInfo(null);
@@ -442,8 +380,13 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         deviceName: null,
         outputEnabled: false,
       }));
+
+      // Refresh the device list.
+      void scanForDevices().catch((error) => {
+        console.error("[DEVICE PROVIDER] Scan after disconnect failed:", error);
+      });
     }
-  }, [stopScan]);
+  }, [stopScan, scanForDevices]);
 
   const testWrite = useCallback(async (): Promise<void> => {
     await pingPocketLab();
