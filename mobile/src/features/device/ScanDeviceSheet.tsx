@@ -1,5 +1,5 @@
 /* src/features/device/ScanDeviceSheet.tsx */
-import React, { useState } from "react";
+import { useState } from "react";
 import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import type { Device } from "react-native-ble-plx";
 import {
@@ -11,8 +11,8 @@ import {
   Text,
 } from "react-native-paper";
 
-import { usePocketLabDevice } from "./DeviceProvider";
 import { pocketLabColors } from "@/themes/theme";
+import { usePocketLabDevice } from "./DeviceProvider";
 
 type ScanDeviceSheetProps = {
   visible: boolean;

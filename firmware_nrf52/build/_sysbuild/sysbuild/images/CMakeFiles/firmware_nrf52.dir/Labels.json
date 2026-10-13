@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/CMakeFiles/firmware_nrf52"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/CMakeFiles/firmware_nrf52.rule"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/CMakeFiles/firmware_nrf52-complete.rule"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-build.rule"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-configure.rule"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-download.rule"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-install.rule"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-patch.rule"
+		},
+		{
+			"file" : "C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"firmware_nrf52"
+		],
+		"name" : "firmware_nrf52"
+	}
+}

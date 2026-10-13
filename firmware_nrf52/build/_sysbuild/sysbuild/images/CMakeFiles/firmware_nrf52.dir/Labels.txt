@@ -1,0 +1,13 @@
+# Target labels
+ firmware_nrf52
+# Source files and their labels
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/CMakeFiles/firmware_nrf52
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/CMakeFiles/firmware_nrf52.rule
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/CMakeFiles/firmware_nrf52-complete.rule
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-build.rule
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-configure.rule
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-download.rule
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-install.rule
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-mkdir.rule
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-patch.rule
+C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/_sysbuild/sysbuild/images/firmware_nrf52-prefix/src/firmware_nrf52-stamp/firmware_nrf52-update.rule

@@ -12,12 +12,12 @@ import React, {
 
 import type { Device } from "react-native-ble-plx";
 
-import type { FunctionGeneratorState, Waveform } from "../../types/pocketLab";
 import { ACTIVE_CALIBRATION_PROFILE } from "../../calibration/activeCalibration";
 import {
   fromHardwareGeneratorSettings,
   toHardwareGeneratorSettings,
 } from "../../calibration/calibrationTransforms";
+import type { FunctionGeneratorState, Waveform } from "../../types/pocketLab";
 
 import { bleDiagnostic } from "./bleClient";
 import {
@@ -53,8 +53,9 @@ export type DmmState = {
 };
 
 export type DmmReading = {
-  value: number;
+  value: number | null;
   unit: "OHM" | "V";
+  overload: boolean;
 };
 
 type DeviceContextValue = {
@@ -67,6 +68,8 @@ type DeviceContextValue = {
   requestDmmReading: () => Promise<DmmReading>;
 
   dmmState: DmmState | null;
+  requestDmmState: () => Promise<DmmState>;
+  setDmmMode: (mode: DmmMode) => Promise<DmmState>;
 
   scanning: boolean;
   reconnecting: boolean;
@@ -77,8 +80,6 @@ type DeviceContextValue = {
   connect: (device: Device) => Promise<void>;
   disconnect: () => Promise<void>;
   testWrite: () => Promise<void>;
-
-  requestDmmState: () => Promise<DmmState>;
 
   setGeneratorSettings: (settings: FunctionGeneratorSettings) => Promise<void>;
 
@@ -141,9 +142,7 @@ function toUiState(
   };
 }
 
-function toProtocolSettings(
-  settings: FunctionGeneratorSettings
-): PocketLabSettings {
+function toProtocolSettings(settings: FunctionGeneratorSettings): PocketLabSettings {
   const normalizedSettings =
     settings.waveform === "dc"
       ? {
@@ -228,15 +227,9 @@ function parseDmmState(response: string): DmmState {
 
   const rrefRaw = values.get("RREF");
 
-  const rrefOhms =
-    rrefRaw !== undefined
-      ? Number(rrefRaw)
-      : null;
+  const rrefOhms = rrefRaw !== undefined ? Number(rrefRaw) : null;
 
-  if (
-    rrefOhms !== null &&
-    !Number.isFinite(rrefOhms)
-  ) {
+  if (rrefOhms !== null && !Number.isFinite(rrefOhms)) {
     throw new Error(`Invalid DMM RREF in response: "${response}"`);
   }
 
@@ -252,14 +245,11 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
   const [deviceInfo, setDeviceInfo] = useState<PocketLabInfo | null>(null);
 
-  const [dmmReading, setDmmReading] =
-    useState<DmmReading | null>(null);
-  
-  const [capabilities, setCapabilities] =
-    useState<PocketLabCapabilities | null>(null);
+  const [dmmReading, setDmmReading] = useState<DmmReading | null>(null);
 
-  const [dmmState, setDmmState] =
-    useState<DmmState | null>(null);
+  const [capabilities, setCapabilities] = useState<PocketLabCapabilities | null>(null);
+
+  const [dmmState, setDmmState] = useState<DmmState | null>(null);
 
   const [scanning, setScanning] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
@@ -327,20 +317,37 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const requestDmmState = useCallback(async (): Promise<DmmState> => {
     console.log("[DMM] Requesting state...");
 
-    const response =
-      await bleDiagnostic.request("DMM:GET_STATE");
+    const response = await bleDiagnostic.request("DMM:GET_STATE");
 
     console.log("[DMM] State response:", response);
 
-    const nextDmmState =
-      parseDmmState(response);
+    const nextDmmState = parseDmmState(response);
 
     setDmmState(nextDmmState);
 
-    console.log(
-      "[DMM] State synchronized:",
-      nextDmmState
-    );
+    console.log("[DMM] State synchronized:", nextDmmState);
+
+    return nextDmmState;
+  }, []);
+
+  const setDmmMode = useCallback(async (mode: DmmMode): Promise<DmmState> => {
+    console.log(`[DMM] Setting mode: ${mode}`);
+
+    const response = await bleDiagnostic.request(`DMM:SET_MODE ${mode}`);
+
+    console.log("[DMM] Mode response:", response);
+
+    const nextDmmState = parseDmmState(response);
+
+    setDmmState(nextDmmState);
+
+    /*
+     * Clear the previous reading so the UI does not briefly show a
+     * measurement from the old mode after switching.
+     */
+    setDmmReading(null);
+
+    console.log("[DMM] Mode updated:", nextDmmState);
 
     return nextDmmState;
   }, []);
@@ -348,8 +355,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const requestDmmReading = useCallback(async (): Promise<DmmReading> => {
     console.log("[DMM] Requesting reading...");
 
-    const response =
-      await bleDiagnostic.request("DMM:READ");
+    const response = await bleDiagnostic.request("DMM:READ");
 
     console.log("[DMM] Reading response:", response);
 
@@ -366,11 +372,11 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       .map((field) => field.trim())
       .filter(Boolean);
 
-    const value = Number(fields[0]);
-
-    if (!Number.isFinite(value)) {
-      throw new Error(`Invalid DMM value in response: "${response}"`);
+    if (fields.length === 0) {
+      throw new Error(`Missing DMM value in response: "${response}"`);
     }
+
+    const rawValue = fields[0];
 
     const values = new Map<string, string>();
 
@@ -382,6 +388,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       }
 
       const key = field.slice(0, separatorIndex).trim();
+
       const fieldValue = field.slice(separatorIndex + 1).trim();
 
       values.set(key, fieldValue);
@@ -389,13 +396,57 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
     const unit = values.get("UNIT");
 
+    const range = values.get("RANGE");
+    const rrefRaw = values.get("RREF");
+
+    if (unit === "OHM" && range && rrefRaw !== undefined) {
+      const rrefOhms = Number(rrefRaw);
+
+      if (Number.isFinite(rrefOhms)) {
+        setDmmState({
+          mode: "RESISTANCE",
+          range,
+          rrefOhms,
+        });
+      }
+    }
+
     if (unit !== "OHM" && unit !== "V") {
       throw new Error(`Invalid DMM unit in response: "${response}"`);
+    }
+
+    /*
+     * OL is a valid resistance measurement state,
+     * not an error.
+     */
+    if (rawValue === "OL") {
+      if (unit !== "OHM") {
+        throw new Error(`OL is only valid for resistance: "${response}"`);
+      }
+
+      const reading: DmmReading = {
+        value: null,
+        unit,
+        overload: true,
+      };
+
+      setDmmReading(reading);
+
+      console.log("[DMM] Reading updated:", reading);
+
+      return reading;
+    }
+
+    const value = Number(rawValue);
+
+    if (!Number.isFinite(value)) {
+      throw new Error(`Invalid DMM value in response: "${response}"`);
     }
 
     const reading: DmmReading = {
       value,
       unit,
+      overload: false,
     };
 
     setDmmReading(reading);
@@ -416,15 +467,9 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     setDeviceInfo(info);
     setCapabilities(deviceCapabilities);
 
-    console.log(
-      "[DEVICE PROVIDER] PocketLab identified:",
-      info
-    );
+    console.log("[DEVICE PROVIDER] PocketLab identified:", info);
 
-    console.log(
-      "[DEVICE PROVIDER] PocketLab capabilities:",
-      deviceCapabilities
-    );
+    console.log("[DEVICE PROVIDER] PocketLab capabilities:", deviceCapabilities);
 
     if (deviceCapabilities.features.includes("DMM")) {
       await requestDmmState();
@@ -443,10 +488,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       ...toUiState(deviceState),
     }));
 
-    console.log(
-      "[DEVICE PROVIDER] Generator state synchronized:",
-      deviceState
-    );
+    console.log("[DEVICE PROVIDER] Generator state synchronized:", deviceState);
   }, []);
 
   const connect = useCallback(
@@ -460,14 +502,9 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
           (error) => {
             if (error) {
-              console.error(
-                "[DEVICE PROVIDER] Connection lost:",
-                error
-              );
+              console.error("[DEVICE PROVIDER] Connection lost:", error);
             } else {
-              console.log(
-                "[DEVICE PROVIDER] Device disconnected"
-              );
+              console.log("[DEVICE PROVIDER] Device disconnected");
             }
 
             setReconnecting(true);
@@ -484,9 +521,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
           },
 
           () => {
-            console.log(
-              "[DEVICE PROVIDER] Attempting to reconnect"
-            );
+            console.log("[DEVICE PROVIDER] Attempting to reconnect");
 
             setReconnecting(true);
 
@@ -502,9 +537,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
           },
 
           (reconnectedDevice) => {
-            console.log(
-              "[DEVICE PROVIDER] Reconnected successfully"
-            );
+            console.log("[DEVICE PROVIDER] Reconnected successfully");
 
             setReconnecting(false);
 
@@ -519,10 +552,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
             }));
 
             void identifyDevice().catch((error) => {
-              console.error(
-                "[DEVICE PROVIDER] Reconnect identification failed:",
-                error
-              );
+              console.error("[DEVICE PROVIDER] Reconnect identification failed:", error);
             });
           }
         );
@@ -542,17 +572,12 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
         console.log(
           "[DEVICE PROVIDER] Connected to:",
-          connectedDevice.name ??
-            connectedDevice.localName ??
-            connectedDevice.id
+          connectedDevice.name ?? connectedDevice.localName ?? connectedDevice.id
         );
 
         const info = await identifyDevice();
 
-        console.log(
-          "[DEVICE PROVIDER] Base device ready:",
-          info
-        );
+        console.log("[DEVICE PROVIDER] Base device ready:", info);
       } catch (error) {
         setReconnecting(false);
 
@@ -578,6 +603,8 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     setDmmReading(null);
 
     try {
+      await bleDiagnostic.request("POWER:SHUTDOWN");
+
       await bleDiagnostic.disconnect();
     } finally {
       setDeviceInfo(null);
@@ -600,22 +627,14 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
     setDeviceInfo(info);
 
-    console.log(
-      "[POCKETLAB] Device info:",
-      info
-    );
+    console.log("[POCKETLAB] Device info:", info);
   }, []);
 
   const setGeneratorSettings = useCallback(
-    async (
-      settings: FunctionGeneratorSettings
-    ): Promise<void> => {
-      const normalizedSettings =
-        normalizeGeneratorSettings(settings);
+    async (settings: FunctionGeneratorSettings): Promise<void> => {
+      const normalizedSettings = normalizeGeneratorSettings(settings);
 
-      await setPocketLabSettings(
-        toProtocolSettings(normalizedSettings)
-      );
+      await setPocketLabSettings(toProtocolSettings(normalizedSettings));
 
       setState((previousState) => ({
         ...previousState,
@@ -627,28 +646,21 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
   const setOffset = useCallback(
     async (volts: number): Promise<void> => {
-      const hardwareSettings =
-        toProtocolSettings({
-          frequencyHz: state.frequencyHz,
-          amplitudeVpp: state.amplitudeVpp,
-          offsetV: volts,
-          waveform: state.waveform,
-        });
+      const hardwareSettings = toProtocolSettings({
+        frequencyHz: state.frequencyHz,
+        amplitudeVpp: state.amplitudeVpp,
+        offsetV: volts,
+        waveform: state.waveform,
+      });
 
-      await setPocketLabOffset(
-        hardwareSettings.offsetV
-      );
+      await setPocketLabOffset(hardwareSettings.offsetV);
 
       setState((previousState) => ({
         ...previousState,
         offsetV: volts,
       }));
     },
-    [
-      state.amplitudeVpp,
-      state.frequencyHz,
-      state.waveform,
-    ]
+    [state.amplitudeVpp, state.frequencyHz, state.waveform]
   );
 
   const setFrequency = useCallback(
@@ -662,15 +674,9 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const frequencyHz =
-        Math.max(
-          1,
-          Math.round(hz)
-        );
+      const frequencyHz = Math.max(1, Math.round(hz));
 
-      await setPocketLabFrequency(
-        frequencyHz
-      );
+      await setPocketLabFrequency(frequencyHz);
 
       setState((previousState) => ({
         ...previousState,
@@ -693,74 +699,48 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
       const amplitudeVpp = vpp;
 
-      const hardwareSettings =
-        toProtocolSettings({
-          frequencyHz: state.frequencyHz,
-          amplitudeVpp,
-          offsetV: state.offsetV,
-          waveform: state.waveform,
-        });
+      const hardwareSettings = toProtocolSettings({
+        frequencyHz: state.frequencyHz,
+        amplitudeVpp,
+        offsetV: state.offsetV,
+        waveform: state.waveform,
+      });
 
-      await setPocketLabAmplitude(
-        hardwareSettings.amplitudeVpp
-      );
+      await setPocketLabAmplitude(hardwareSettings.amplitudeVpp);
 
       setState((previousState) => ({
         ...previousState,
         amplitudeVpp,
       }));
     },
-    [
-      state.frequencyHz,
-      state.offsetV,
-      state.waveform,
-    ]
+    [state.frequencyHz, state.offsetV, state.waveform]
   );
 
   const setWaveform = useCallback(
-    async (
-      waveform: Waveform
-    ): Promise<void> => {
-      const normalizedSettings =
-        normalizeGeneratorSettings({
-          frequencyHz:
-            waveform === "dc"
-              ? 0
-              : state.frequencyHz > 0
-              ? state.frequencyHz
-              : 1000,
+    async (waveform: Waveform): Promise<void> => {
+      const normalizedSettings = normalizeGeneratorSettings({
+        frequencyHz:
+          waveform === "dc" ? 0 : state.frequencyHz > 0 ? state.frequencyHz : 1000,
 
-          amplitudeVpp:
-            waveform === "dc"
-              ? 0
-              : state.amplitudeVpp,
+        amplitudeVpp: waveform === "dc" ? 0 : state.amplitudeVpp,
 
-          offsetV:
-            state.offsetV,
+        offsetV: state.offsetV,
 
-          waveform,
-        });
+        waveform,
+      });
 
-      await setPocketLabSettings(
-        toProtocolSettings(normalizedSettings)
-      );
+      await setPocketLabSettings(toProtocolSettings(normalizedSettings));
 
       setState((previousState) => ({
         ...previousState,
         ...normalizedSettings,
       }));
     },
-    [
-      state.amplitudeVpp,
-      state.frequencyHz,
-      state.offsetV,
-    ]
+    [state.amplitudeVpp, state.frequencyHz, state.offsetV]
   );
 
   const setOutputEnabled = useCallback(
-    async (
-      enabled: boolean
-    ): Promise<void> => {
+    async (enabled: boolean): Promise<void> => {
       if (enabled) {
         toProtocolSettings({
           frequencyHz: state.frequencyHz,
@@ -770,21 +750,14 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      await setPocketLabOutput(
-        enabled
-      );
+      await setPocketLabOutput(enabled);
 
       setState((previousState) => ({
         ...previousState,
         outputEnabled: enabled,
       }));
     },
-    [
-      state.amplitudeVpp,
-      state.frequencyHz,
-      state.offsetV,
-      state.waveform,
-    ]
+    [state.amplitudeVpp, state.frequencyHz, state.offsetV, state.waveform]
   );
 
   const value = useMemo<DeviceContextValue>(
@@ -809,6 +782,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       testWrite,
 
       requestDmmState,
+      setDmmMode,
 
       setGeneratorSettings,
       setOffset,
@@ -838,6 +812,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       testWrite,
 
       requestDmmState,
+      setDmmMode,
 
       setGeneratorSettings,
       setOffset,
@@ -848,21 +823,14 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
     ]
   );
 
-  return (
-    <DeviceContext.Provider value={value}>
-      {children}
-    </DeviceContext.Provider>
-  );
+  return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>;
 }
 
 export function usePocketLabDevice(): DeviceContextValue {
-  const context =
-    useContext(DeviceContext);
+  const context = useContext(DeviceContext);
 
   if (!context) {
-    throw new Error(
-      "usePocketLabDevice must be used inside DeviceProvider"
-    );
+    throw new Error("usePocketLabDevice must be used inside DeviceProvider");
   }
 
   return context;

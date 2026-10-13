@@ -58,3 +58,6 @@ __pycache__/
 *-backups/
 _autosave-*
 *.tmp
+
+# Altium hardware projects
+/hardware/

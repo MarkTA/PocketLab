@@ -1,0 +1,7 @@
+&qspi {
+    status = "disabled";
+};
+
+&gpio0 {
+    gpio-reserved-ranges = <0 2>, <6 1>, <8 3>;
+};

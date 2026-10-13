@@ -1,6 +1,6 @@
 /* src/features/dmm/DmmScreen.tsx */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button, Text } from "react-native-paper";
 
@@ -10,9 +10,9 @@ import { DrawerMenuButton } from "../../components/navigation/DrawerMenuButton";
 
 import { pocketLabColors } from "../../themes/theme";
 
+import { usePocketLabDevice } from "../device/DeviceProvider";
 import { DeviceStatusCard } from "../device/DeviceStatusCard";
 import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
-import { usePocketLabDevice } from "../device/DeviceProvider";
 
 export function DmmScreen() {
   const {
@@ -22,19 +22,16 @@ export function DmmScreen() {
     dmmState,
     dmmReading,
     requestDmmReading,
+    setDmmMode,
   } = usePocketLabDevice();
 
   const [deviceSheetVisible, setDeviceSheetVisible] = useState(false);
   const [readingPending, setReadingPending] = useState(false);
   const [readingError, setReadingError] = useState<string | null>(null);
 
-  const dmmSupported =
-    capabilities?.features.includes("DMM") ?? false;
+  const dmmSupported = capabilities?.features.includes("DMM") ?? false;
 
-  const connectedAndReady =
-    state.connected &&
-    dmmSupported &&
-    dmmState !== null;
+  const connectedAndReady = state.connected && dmmSupported && dmmState !== null;
 
   const readMeasurement = useCallback(async () => {
     if (!connectedAndReady || readingPending) {
@@ -50,18 +47,12 @@ export function DmmScreen() {
       console.error("[DMM SCREEN] Measurement failed:", error);
 
       setReadingError(
-        error instanceof Error
-          ? error.message
-          : "Unable to read measurement."
+        error instanceof Error ? error.message : "Unable to read measurement."
       );
     } finally {
       setReadingPending(false);
     }
-  }, [
-    connectedAndReady,
-    readingPending,
-    requestDmmReading,
-  ]);
+  }, [connectedAndReady, readingPending, requestDmmReading]);
 
   /*
    * Take one measurement automatically when the DMM screen first becomes
@@ -70,19 +61,10 @@ export function DmmScreen() {
    * We can replace this with continuous BLE streaming later.
    */
   useEffect(() => {
-    if (
-      connectedAndReady &&
-      dmmReading === null &&
-      !readingPending
-    ) {
+    if (connectedAndReady && dmmReading === null && !readingPending) {
       void readMeasurement();
     }
-  }, [
-    connectedAndReady,
-    dmmReading,
-    readingPending,
-    readMeasurement,
-  ]);
+  }, [connectedAndReady, dmmReading, readingPending, readMeasurement]);
 
   const formattedReading = useMemo(() => {
     if (!dmmReading) {
@@ -92,14 +74,28 @@ export function DmmScreen() {
       };
     }
 
-    return formatDmmReading(
-      dmmReading.value,
-      dmmReading.unit
-    );
-  }, [
-    dmmReading,
-    dmmState?.mode,
-  ]);
+    /*
+     * OL is a valid resistance measurement state.
+     */
+    if (dmmReading.overload) {
+      return {
+        value: "OL",
+        unit: "Ω",
+      };
+    }
+
+    /*
+     * A normal reading should always have a numeric value.
+     */
+    if (dmmReading.value === null) {
+      return {
+        value: "—",
+        unit: displayUnitForMode(dmmState?.mode),
+      };
+    }
+
+    return formatDmmReading(dmmReading.value, dmmReading.unit);
+  }, [dmmReading, dmmState?.mode]);
 
   const connectionText = useMemo(() => {
     if (reconnecting) {
@@ -119,20 +115,12 @@ export function DmmScreen() {
     }
 
     return "Ready";
-  }, [
-    reconnecting,
-    state.connected,
-    dmmSupported,
-    dmmState,
-  ]);
+  }, [reconnecting, state.connected, dmmSupported, dmmState]);
 
   const referenceText =
-    dmmState?.rrefOhms != null
-      ? formatResistanceReference(dmmState.rrefOhms)
-      : "—";
+    dmmState?.rrefOhms != null ? formatResistanceReference(dmmState.rrefOhms) : "—";
 
-  const mode =
-    dmmState?.mode ?? "RESISTANCE";
+  const mode = dmmState?.mode ?? "RESISTANCE";
 
   return (
     <>
@@ -161,141 +149,90 @@ export function DmmScreen() {
               style={[
                 styles.statusDot,
                 {
-                  backgroundColor:
-                    connectedAndReady
-                      ? pocketLabColors.green
-                      : pocketLabColors.deviceOff,
+                  backgroundColor: connectedAndReady
+                    ? pocketLabColors.green
+                    : pocketLabColors.deviceOff,
                 },
               ]}
             />
 
-            <Text
-              variant="bodySmall"
-              style={styles.statusText}
-            >
+            <Text variant="bodySmall" style={styles.statusText}>
               {connectionText}
             </Text>
           </View>
 
           <View style={styles.displayCard}>
-            <Text
-              variant="labelLarge"
-              style={styles.measurementLabel}
-            >
-              {mode === "RESISTANCE"
-                ? "Resistance"
-                : "DC Voltage"}
+            <Text variant="labelLarge" style={styles.measurementLabel}>
+              {mode === "RESISTANCE" ? "Resistance" : "DC Voltage"}
             </Text>
 
             <View style={styles.readingRow}>
-              <Text
-                style={styles.readingValue}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {readingPending
-                  ? "…"
-                  : formattedReading.value}
+              <Text style={styles.readingValue} numberOfLines={1} adjustsFontSizeToFit>
+                {readingPending ? "…" : formattedReading.value}
               </Text>
 
-              <Text style={styles.readingUnit}>
-                {formattedReading.unit}
-              </Text>
+              <Text style={styles.readingUnit}>{formattedReading.unit}</Text>
             </View>
 
-            <Text
-              variant="bodySmall"
-              style={styles.rangeLabel}
-            >
+            <Text variant="bodySmall" style={styles.rangeLabel}>
               Range: {dmmState?.range ?? "—"}
             </Text>
           </View>
 
           <View style={styles.modeSection}>
-            <Text
-              variant="labelLarge"
-              style={styles.sectionTitle}
-            >
+            <Text variant="labelLarge" style={styles.sectionTitle}>
               Measurement
             </Text>
 
             <View style={styles.modeButtons}>
               <Button
-                mode={
-                  mode === "RESISTANCE"
-                    ? "contained"
-                    : "outlined"
-                }
+                mode={mode === "RESISTANCE" ? "contained" : "outlined"}
                 icon="omega"
                 style={styles.modeButton}
                 contentStyle={styles.modeButtonContent}
-                disabled={
-                  !connectedAndReady ||
-                  mode !== "RESISTANCE"
-                }
-                onPress={() => undefined}
+                disabled={!connectedAndReady}
+                onPress={() => {
+                  void setDmmMode("RESISTANCE");
+                }}
               >
                 Resistance
               </Button>
 
               <Button
-                mode={
-                  mode === "VOLTAGE"
-                    ? "contained"
-                    : "outlined"
-                }
+                mode={mode === "VOLTAGE" ? "contained" : "outlined"}
                 icon="flash-outline"
                 style={styles.modeButton}
                 contentStyle={styles.modeButtonContent}
-                disabled={
-                  !connectedAndReady ||
-                  mode !== "VOLTAGE"
-                }
-                onPress={() => undefined}
+                disabled={!connectedAndReady}
+                onPress={() => {
+                  void setDmmMode("VOLTAGE");
+                }}
               >
                 Voltage
               </Button>
             </View>
 
-            <Text
-              variant="bodySmall"
-              style={styles.modeHint}
-            >
-              {mode === "VOLTAGE"
-                ? "Voltage prototype firmware active. Hardware mode switching will be enabled after relay/MUX integration."
-                : "Resistance prototype firmware active. Hardware mode switching will be enabled after relay/MUX integration."}
+            <Text variant="bodySmall" style={styles.modeHint}>
+              {mode === "VOLTAGE" ? "DC voltage measurement" : "Resistance measurement"}
             </Text>
           </View>
 
           <View style={styles.detailsCard}>
             <DetailRow
               label="Mode"
-              value={
-                mode === "RESISTANCE"
-                  ? "Resistance"
-                  : "DC Voltage"
-              }
+              value={mode === "RESISTANCE" ? "Resistance" : "DC Voltage"}
             />
 
-            <DetailRow
-              label="Range"
-              value={dmmState?.range ?? "—"}
-            />
+            <DetailRow label="Range" value={dmmState?.range ?? "—"} />
 
             {mode === "RESISTANCE" ? (
-              <DetailRow
-                label="Reference"
-                value={referenceText}
-              />
+              <DetailRow label="Reference" value={referenceText} />
             ) : null}
           </View>
 
           {readingError ? (
             <View style={styles.errorCard}>
-              <Text
-                variant="bodySmall"
-                style={styles.errorText}
-              >
+              <Text variant="bodySmall" style={styles.errorText}>
                 {readingError}
               </Text>
             </View>
@@ -306,10 +243,7 @@ export function DmmScreen() {
               mode="contained"
               icon="refresh"
               loading={readingPending}
-              disabled={
-                !connectedAndReady ||
-                readingPending
-              }
+              disabled={!connectedAndReady || readingPending}
               onPress={() => {
                 void readMeasurement();
               }}
@@ -336,32 +270,21 @@ type DetailRowProps = {
   value: string;
 };
 
-function DetailRow({
-  label,
-  value,
-}: DetailRowProps) {
+function DetailRow({ label, value }: DetailRowProps) {
   return (
     <View style={styles.detailRow}>
-      <Text
-        variant="bodyMedium"
-        style={styles.detailLabel}
-      >
+      <Text variant="bodyMedium" style={styles.detailLabel}>
         {label}
       </Text>
 
-      <Text
-        variant="bodyMedium"
-        style={styles.detailValue}
-      >
+      <Text variant="bodyMedium" style={styles.detailValue}>
         {value}
       </Text>
     </View>
   );
 }
 
-function displayUnitForMode(
-  mode: "RESISTANCE" | "VOLTAGE" | undefined
-): string {
+function displayUnitForMode(mode: "RESISTANCE" | "VOLTAGE" | undefined): string {
   switch (mode) {
     case "VOLTAGE":
       return "V";
@@ -411,20 +334,14 @@ function formatDmmReading(
 
   const absoluteValue = Math.abs(value);
 
-  if (
-    absoluteValue > 0 &&
-    absoluteValue < 0.001
-  ) {
+  if (absoluteValue > 0 && absoluteValue < 0.001) {
     return {
       value: (value * 1_000_000).toFixed(1),
       unit: "µV",
     };
   }
 
-  if (
-    absoluteValue > 0 &&
-    absoluteValue < 1
-  ) {
+  if (absoluteValue > 0 && absoluteValue < 1) {
     return {
       value: (value * 1_000).toFixed(3),
       unit: "mV",
@@ -437,9 +354,7 @@ function formatDmmReading(
   };
 }
 
-function formatResistanceReference(
-  resistanceOhms: number
-): string {
+function formatResistanceReference(resistanceOhms: number): string {
   if (resistanceOhms >= 1_000_000) {
     return `${(resistanceOhms / 1_000_000).toFixed(3)} MΩ`;
   }
