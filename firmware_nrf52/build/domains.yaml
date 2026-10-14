@@ -1,7 +1,0 @@
-default: firmware_nrf52
-build_dir: C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build
-domains:
-  - name: firmware_nrf52
-    build_dir: C:/Users/mark/Desktop/PocketLab/firmware_nrf52/build/firmware_nrf52
-flash_order:
-  - firmware_nrf52
