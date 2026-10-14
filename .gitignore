@@ -20,3 +20,6 @@ docs/**/*.JPEG
 # Altium Projects
 
 /hardware/
+
+# nRF Connect SDK / Zephyr build outputs
+/firmware_nrf52/build/
