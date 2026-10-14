@@ -2,7 +2,7 @@
 
 import { useIsFocused } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { AppState, StyleSheet, View } from "react-native";
+import { AppState, ScrollView, StyleSheet, View } from "react-native";
 import { Button, Text } from "react-native-paper";
 
 import { Screen } from "../../components/layout/Screen";
@@ -14,6 +14,7 @@ import { pocketLabColors } from "../../themes/theme";
 import { usePocketLabDevice } from "../device/DeviceProvider";
 import { DeviceStatusCard } from "../device/DeviceStatusCard";
 import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
+import { VoltageTimeGraph } from "./components/VoltageTimeGraph";
 import { useContinuousDmm } from "./hooks/useContinuousDmm";
 
 export function DmmScreen() {
@@ -21,6 +22,7 @@ export function DmmScreen() {
     usePocketLabDevice();
 
   const [deviceSheetVisible, setDeviceSheetVisible] = useState(false);
+  const [showVoltageGraph, setShowVoltageGraph] = useState(false);
   const isFocused = useIsFocused();
   const [appActive, setAppActive] = useState(
     AppState.currentState === "active" || AppState.currentState == null
@@ -141,7 +143,7 @@ export function DmmScreen() {
           />
         }
       >
-        <View style={styles.content}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.statusRow}>
             <View
               style={[
@@ -183,6 +185,22 @@ export function DmmScreen() {
                   : "Not measuring"}
             </Text>
           </View>
+
+          {mode === "VOLTAGE" ? (
+            <>
+              <Button
+                mode="outlined"
+                icon={showVoltageGraph ? "chart-line" : "chart-timeline-variant"}
+                onPress={() => setShowVoltageGraph((previous) => !previous)}
+              >
+                {showVoltageGraph ? "Hide V–t graph" : "Show V–t graph"}
+              </Button>
+
+              {showVoltageGraph ? (
+                <VoltageTimeGraph samples={samples} paused={paused} />
+              ) : null}
+            </>
+          ) : null}
 
           <View style={styles.modeSection}>
             <Text variant="labelLarge" style={styles.sectionTitle}>
@@ -269,7 +287,7 @@ export function DmmScreen() {
               </Button>
             ) : null}
           </View>
-        </View>
+        </ScrollView>
       </Screen>
 
       <ScanDeviceSheet
@@ -385,7 +403,7 @@ function formatResistanceReference(resistanceOhms: number): string {
 
 const styles = StyleSheet.create({
   content: {
-    flex: 1,
+    flexGrow: 1,
     gap: 16,
     paddingTop: 8,
   },
