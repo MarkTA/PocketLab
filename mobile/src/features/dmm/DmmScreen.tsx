@@ -1,7 +1,8 @@
 /* src/features/dmm/DmmScreen.tsx */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useIsFocused } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import { AppState, StyleSheet, View } from "react-native";
 import { Button, Text } from "react-native-paper";
 
 import { Screen } from "../../components/layout/Screen";
@@ -13,76 +14,57 @@ import { pocketLabColors } from "../../themes/theme";
 import { usePocketLabDevice } from "../device/DeviceProvider";
 import { DeviceStatusCard } from "../device/DeviceStatusCard";
 import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
+import { useContinuousDmm } from "./hooks/useContinuousDmm";
 
 export function DmmScreen() {
-  const {
-    state,
-    reconnecting,
-    capabilities,
-    dmmState,
-    dmmReading,
-    requestDmmReading,
-    setDmmMode,
-  } = usePocketLabDevice();
+  const { state, reconnecting, capabilities, dmmState, requestDmmReading, setDmmMode } =
+    usePocketLabDevice();
 
   const [deviceSheetVisible, setDeviceSheetVisible] = useState(false);
-  const [readingPending, setReadingPending] = useState(false);
-  const [readingError, setReadingError] = useState<string | null>(null);
+  const isFocused = useIsFocused();
+  const [appActive, setAppActive] = useState(
+    AppState.currentState === "active" || AppState.currentState == null
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      setAppActive(nextState === "active");
+    });
+    return () => subscription.remove();
+  }, []);
 
   const dmmSupported = capabilities?.features.includes("DMM") ?? false;
-
   const connectedAndReady = state.connected && dmmSupported && dmmState !== null;
+  const mode = dmmState?.mode ?? "RESISTANCE";
 
-  const initialReadAttempted = useRef(false);
+  // Only poll while the meter screen is visible, connected, and foregrounded.
+  const streamEnabled =
+    connectedAndReady && isFocused && appActive && !deviceSheetVisible;
+  const {
+    reading: dmmReading,
+    samples,
+    error: readingError,
+    paused,
+    setPaused,
+    readingPending,
+    switchingMode,
+    polling,
+    changeMode,
+    readOnce,
+    stopForDeviceSheet,
+  } = useContinuousDmm({
+    connected: state.connected,
+    enabled: streamEnabled,
+    mode: dmmState?.mode ?? null,
+    requestDmmReading,
+    setDmmMode,
+  });
 
-  const readMeasurement = useCallback(async () => {
-    if (!connectedAndReady || readingPending) {
-      return;
-    }
-
-    initialReadAttempted.current = true;
-
-    setReadingPending(true);
-    setReadingError(null);
-
-    try {
-      await requestDmmReading();
-    } catch (error) {
-      console.error("[DMM SCREEN] Measurement failed:", error);
-
-      setReadingError(
-        error instanceof Error ? error.message : "Unable to read measurement."
-      );
-    } finally {
-      setReadingPending(false);
-    }
-  }, [connectedAndReady, readingPending, requestDmmReading]);
-
-  /*
-   * Automatically request one measurement when the DMM
-   * becomes ready.
-   *
-   * Schedule the request asynchronously to avoid
-   * synchronous state updates inside the effect.
-   *
-   * Reset the flag when the device becomes unavailable.
-   */
-  useEffect(() => {
-    if (!connectedAndReady) {
-      initialReadAttempted.current = false;
-      return;
-    }
-
-    if (dmmReading !== null || initialReadAttempted.current) {
-      return;
-    }
-
-    const timeout = setTimeout(() => {
-      void readMeasurement();
-    }, 0);
-
-    return () => clearTimeout(timeout);
-  }, [connectedAndReady, dmmReading, readMeasurement]);
+  const showDeviceSheet = async () => {
+    // Ensure no DMM request is still pending before allowing shutdown.
+    await stopForDeviceSheet();
+    setDeviceSheetVisible(true);
+  };
 
   const formattedReading = useMemo(() => {
     if (!dmmReading) {
@@ -138,8 +120,6 @@ export function DmmScreen() {
   const referenceText =
     dmmState?.rrefOhms != null ? formatResistanceReference(dmmState.rrefOhms) : "—";
 
-  const mode = dmmState?.mode ?? "RESISTANCE";
-
   return (
     <>
       <Screen
@@ -154,7 +134,7 @@ export function DmmScreen() {
                 reconnecting={reconnecting}
                 deviceName={state.deviceName}
                 onPress={() => {
-                  setDeviceSheetVisible(true);
+                  void showDeviceSheet();
                 }}
               />
             }
@@ -186,7 +166,7 @@ export function DmmScreen() {
 
             <View style={styles.readingRow}>
               <Text style={styles.readingValue} numberOfLines={1} adjustsFontSizeToFit>
-                {readingPending ? "…" : formattedReading.value}
+                {switchingMode ? "…" : formattedReading.value}
               </Text>
 
               <Text style={styles.readingUnit}>{formattedReading.unit}</Text>
@@ -194,6 +174,13 @@ export function DmmScreen() {
 
             <Text variant="bodySmall" style={styles.rangeLabel}>
               Range: {dmmState?.range ?? "—"}
+            </Text>
+            <Text variant="bodySmall" style={styles.streamStatus}>
+              {polling
+                ? `LIVE · 5 Hz target · ${samples.length} buffered`
+                : paused && streamEnabled
+                  ? "Paused"
+                  : "Not measuring"}
             </Text>
           </View>
 
@@ -208,9 +195,9 @@ export function DmmScreen() {
                 icon="omega"
                 style={styles.modeButton}
                 contentStyle={styles.modeButtonContent}
-                disabled={!connectedAndReady}
+                disabled={!connectedAndReady || switchingMode}
                 onPress={() => {
-                  void setDmmMode("RESISTANCE");
+                  void changeMode("RESISTANCE");
                 }}
               >
                 Resistance
@@ -221,9 +208,9 @@ export function DmmScreen() {
                 icon="flash-outline"
                 style={styles.modeButton}
                 contentStyle={styles.modeButtonContent}
-                disabled={!connectedAndReady}
+                disabled={!connectedAndReady || switchingMode}
                 onPress={() => {
-                  void setDmmMode("VOLTAGE");
+                  void changeMode("VOLTAGE");
                 }}
               >
                 Voltage
@@ -259,16 +246,28 @@ export function DmmScreen() {
           <View style={styles.controls}>
             <Button
               mode="contained"
-              icon="refresh"
-              loading={readingPending}
-              disabled={!connectedAndReady || readingPending}
-              onPress={() => {
-                void readMeasurement();
-              }}
+              icon={paused ? "play" : "pause"}
+              disabled={!streamEnabled || switchingMode}
+              onPress={() => setPaused((previous) => !previous)}
               contentStyle={styles.readButtonContent}
+              style={styles.controlButton}
             >
-              {readingPending ? "Reading…" : "Read"}
+              {paused ? "Resume" : "Pause"}
             </Button>
+
+            {paused ? (
+              <Button
+                mode="outlined"
+                icon="refresh"
+                loading={readingPending}
+                disabled={!streamEnabled || readingPending || switchingMode}
+                onPress={() => void readOnce()}
+                contentStyle={styles.readButtonContent}
+                style={styles.controlButton}
+              >
+                Read Once
+              </Button>
+            ) : null}
           </View>
         </View>
       </Screen>
@@ -509,6 +508,17 @@ const styles = StyleSheet.create({
 
   controls: {
     marginTop: 2,
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  controlButton: {
+    flex: 1,
+  },
+
+  streamStatus: {
+    color: pocketLabColors.mutedText,
+    marginTop: 8,
   },
 
   readButtonContent: {
