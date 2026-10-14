@@ -397,3 +397,27 @@ bool ads1220_config_resistance(void)
         0x00
     );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Fast continuity configuration                                               */
+/* -------------------------------------------------------------------------- */
+
+bool ads1220_config_continuity(void)
+{
+    /* Keep resistance-mode analog routing (AIN1-AIN2, external REF0).
+     * CONFIG1 DR[2:0] = 101 and MODE[1:0] = 00:
+     *   - 600 SPS nominal (normal mode)
+     *   - Single-shot conversions (CM = 0)
+     *   - ~1.7 ms nominal ADC conversion time per reading
+     *
+     * This trades noise performance for fast contact detection. Normal
+     * voltage/resistance modes continue to use their original 20 SPS setup.
+     * See TI ADS1220 datasheet: CONFIG1 bit layout and data-rate table.
+     */
+    return ads_configure(
+        0x31,  /* AIN1 - AIN2, gain 1, PGA bypass */
+        0xA0,  /* DR = 101 (600 SPS), normal mode, single shot */
+        0x40,  /* External REF0 */
+        0x00
+    );
+}

@@ -7,6 +7,9 @@ bool ads1220_init(void);
 
 bool ads1220_config_voltage(void);
 bool ads1220_config_resistance(void);
+/* Fixed 10K resistance path, normal-mode 600 SPS single-shot.
+ * Only select this configuration when the continuity worker owns the ADC. */
+bool ads1220_config_continuity(void);
 
 bool ads1220_read_raw(int32_t *raw);
 

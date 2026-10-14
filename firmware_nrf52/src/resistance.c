@@ -464,6 +464,41 @@ resistance_result_t resistance_read(double *ohms)
 }
 
 /* -------------------------------------------------------------------------- */
+/* Fixed-range continuity measurement                                          */
+/* -------------------------------------------------------------------------- */
+
+resistance_result_t resistance_read_continuity(double *ohms)
+{
+    if (ohms == NULL || current_range != RESISTANCE_RANGE_10K) {
+        return RESISTANCE_RESULT_ERROR;
+    }
+
+    int32_t raw;
+    if (!ads1220_read_raw(&raw)) {
+        return RESISTANCE_RESULT_ERROR;
+    }
+
+    /* Small negative ADC offsets are expected when the probes are shorted. */
+    if (raw <= 0) {
+        *ohms = 0.0;
+        return RESISTANCE_RESULT_OK;
+    }
+
+    const double ratio = (double)raw / ADS1220_POSITIVE_FULL_SCALE;
+    if (ratio >= OPEN_MAX_RANGE_RATIO) {
+        return RESISTANCE_RESULT_OPEN;
+    }
+
+    const double resistance = 10000.0 * ratio / (1.0 - ratio);
+    if (!isfinite(resistance) || resistance < 0.0) {
+        return RESISTANCE_RESULT_ERROR;
+    }
+
+    *ohms = resistance;
+    return RESISTANCE_RESULT_OK;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Range information                                                          */
 /* -------------------------------------------------------------------------- */
 

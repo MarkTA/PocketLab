@@ -35,6 +35,10 @@ void resistance_exit_mode(void);
 
 resistance_result_t resistance_read(double *ohms);
 
+/* Single fixed-10K ADC conversion for fast, autonomous continuity detection.
+ * Caller must hold the DMM/ADC mutex (owned by ble.c). */
+resistance_result_t resistance_read_continuity(double *ohms);
+
 resistance_range_t resistance_get_range(void);
 
 double resistance_get_rref_ohms(void);

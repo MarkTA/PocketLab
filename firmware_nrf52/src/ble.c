@@ -4,11 +4,16 @@
 #include "ads1220.h"
 #include "resistance.h"
 #include "power.h"
+#include "board_pins.h"
+
+#include <hal/nrf_gpio.h>
+#include <hal/nrf_pwm.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/sys/printk.h>
 
 #include <errno.h>
@@ -21,9 +26,166 @@
 typedef enum {
     DMM_MODE_VOLTAGE,
     DMM_MODE_RESISTANCE,
+    DMM_MODE_CONTINUITY,
 } dmm_mode_t;
 
-static dmm_mode_t current_dmm_mode = DMM_MODE_VOLTAGE;
+/* These flags cross BLE callback / continuity worker / system work contexts. */
+static atomic_t current_dmm_mode = ATOMIC_INIT(DMM_MODE_VOLTAGE);
+static atomic_t connected_state = ATOMIC_INIT(0);
+static atomic_t continuity_active = ATOMIC_INIT(0);
+static atomic_t buzzer_tone_active = ATOMIC_INIT(0);
+
+/* Serializes all ADS1220 accesses and DMM mode changes. */
+K_MUTEX_DEFINE(dmm_mutex);
+K_SEM_DEFINE(continuity_wake, 0, 1);
+
+#define CONTINUITY_ON_OHMS 30.0
+#define CONTINUITY_OFF_OHMS 40.0
+#define CONTINUITY_POLL_GAP_MS 1 /* Additional pause AFTER each fast ADC conversion. */
+
+/* Cached status is only accessed while dmm_mutex is held. */
+static resistance_result_t continuity_result = RESISTANCE_RESULT_ERROR;
+static double continuity_ohms;
+static bool continuity_has_sample;
+
+
+/* EVT1 buzzer: PWM drives the active-low red LED GPIO through the external
+ * transistor driver. MODE_RELAY_EN is the independent hardware interlock.
+ * That relay gate is forced LOW immediately on mode changes/disconnect. */
+#define BUZZER_PWM_TOP 250  /* 1 MHz / 250 = 4 kHz */
+#define BUZZER_PWM_DUTY 125 /* 50% */
+
+/* EasyDMA requires the sequence to reside in RAM. */
+static uint16_t buzzer_pwm_sequence[1] = { BUZZER_PWM_DUTY };
+static bool buzzer_running;
+
+static void buzzer_stop(void)
+{
+    if (buzzer_running) {
+        NRF_PWM2->SHORTS = 0;
+        NRF_PWM2->TASKS_STOP = 1;
+        /* Do not let PWM retain ownership of GPIO_R. */
+        NRF_PWM2->ENABLE = 0;
+        NRF_PWM2->PSEL.OUT[0] = 0xFFFFFFFFu;
+        buzzer_running = false;
+    }
+    nrf_gpio_cfg_output(PIN_LED_R);
+    nrf_gpio_pin_set(PIN_LED_R); /* PNP off */
+    atomic_clear(&buzzer_tone_active);
+}
+
+static void buzzer_start(void)
+{
+    if (buzzer_running) {
+        return;
+    }
+
+    buzzer_stop();
+    led_set_connected(); /* Green on; red output inactive before PWM. */
+
+    NRF_PWM2->ENABLE = 0;
+    NRF_PWM2->PSEL.OUT[0] = PIN_LED_R;
+    NRF_PWM2->PSEL.OUT[1] = 0xFFFFFFFFu;
+    NRF_PWM2->PSEL.OUT[2] = 0xFFFFFFFFu;
+    NRF_PWM2->PSEL.OUT[3] = 0xFFFFFFFFu;
+    NRF_PWM2->PRESCALER = 4; /* 16 MHz / 2^4 = 1 MHz */
+    NRF_PWM2->MODE = 0; /* up counter */
+    NRF_PWM2->COUNTERTOP = BUZZER_PWM_TOP;
+    NRF_PWM2->DECODER = 0; /* common load, refresh on every period */
+    NRF_PWM2->LOOP = 1;
+    NRF_PWM2->SEQ[0].PTR = (uint32_t)buzzer_pwm_sequence;
+    NRF_PWM2->SEQ[0].CNT = 1;
+    NRF_PWM2->SEQ[0].REFRESH = 0;
+    NRF_PWM2->SEQ[0].ENDDELAY = 0;
+    NRF_PWM2->SHORTS = PWM_SHORTS_LOOPSDONE_SEQSTART0_Msk;
+    NRF_PWM2->ENABLE = 1;
+    buzzer_running = true;
+    atomic_set(&buzzer_tone_active, 1);
+    NRF_PWM2->TASKS_SEQSTART[0] = 1;
+    printk("[BUZZER] Continuity 4 kHz tone ON\n");
+}
+
+/* Cut the hardware gate immediately, even if an ADC conversion is in flight. */
+static void continuity_disable_immediately(void)
+{
+    atomic_clear(&continuity_active);
+    nrf_gpio_pin_clear(PIN_MODE_RELAY_EN);
+    nrf_gpio_pin_clear(PIN_MUX_EN);
+    buzzer_stop();
+}
+
+/* This thread is dormant outside continuity mode. Only one context at a
+ * time ever touches ADS1220. The buzzer operates even without app polling. */
+static void continuity_thread(void *a, void *b, void *c)
+{
+    ARG_UNUSED(a);
+    ARG_UNUSED(b);
+    ARG_UNUSED(c);
+
+    while (true) {
+        k_sem_take(&continuity_wake, K_FOREVER);
+
+        while (atomic_get(&continuity_active)) {
+            k_mutex_lock(&dmm_mutex, K_FOREVER);
+
+            if (atomic_get(&continuity_active) && atomic_get(&connected_state) &&
+                atomic_get(&current_dmm_mode) == DMM_MODE_CONTINUITY) {
+                double ohms = 0.0;
+                resistance_result_t result = resistance_read_continuity(&ohms);
+
+                /* A disconnect can happen during the ADC conversion. Never
+                 * re-enable the tone after the urgent relay cutoff. */
+                if (atomic_get(&continuity_active) && atomic_get(&connected_state) &&
+                    atomic_get(&current_dmm_mode) == DMM_MODE_CONTINUITY) {
+                    continuity_result = result;
+                    continuity_has_sample = (result != RESISTANCE_RESULT_ERROR);
+
+                    if (result == RESISTANCE_RESULT_OK) {
+                        continuity_ohms = ohms;
+                        if (atomic_get(&buzzer_tone_active)) {
+                            if (ohms >= CONTINUITY_OFF_OHMS) {
+                                buzzer_stop();
+                            }
+                        } else if (ohms <= CONTINUITY_ON_OHMS) {
+                            buzzer_start();
+                        }
+                    } else {
+                        /* OL or ADC failure must never leave the tone on. */
+                        buzzer_stop();
+                    }
+                }
+            }
+
+            k_mutex_unlock(&dmm_mutex);
+            k_msleep(CONTINUITY_POLL_GAP_MS);
+        }
+    }
+}
+
+/* Dedicated low-priority worker; no additional source/CMake changes needed. */
+K_THREAD_DEFINE(continuity_thread_id, 3072, continuity_thread,
+                NULL, NULL, NULL, 10, 0, 0);
+
+/* The BLE disconnect callback must not run blocking SPI/ADC operations.
+ * Relay and resistance excitation are disabled synchronously; ADC
+ * reconfiguration is deferred to system workqueue context. */
+static void disconnect_safe_mode_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+    k_mutex_lock(&dmm_mutex, K_FOREVER);
+    /* Reconnect may have selected another mode while this work was queued. */
+    if (atomic_get(&current_dmm_mode) == DMM_MODE_VOLTAGE) {
+        resistance_exit_mode();
+        if (!ads1220_config_voltage()) {
+            printk("[DMM] ERROR: voltage ADC config failed after disconnect\n");
+        } else {
+            printk("[DMM] Returned to voltage mode after disconnect\n");
+        }
+    }
+    k_mutex_unlock(&dmm_mutex);
+}
+K_WORK_DEFINE(disconnect_safe_mode_work, disconnect_safe_mode_work_handler);
+
 
 /* -------------------------------------------------------------------------- */
 /* PocketLab UUIDs                                                            */
@@ -62,7 +224,6 @@ static struct bt_uuid_128 pocketlab_response_tx_uuid =
 /* State                                                                      */
 /* -------------------------------------------------------------------------- */
 
-static bool connected_state = false;
 static bool restart_advertising = false;
 
 #define COMMAND_BUFFER_SIZE 64
@@ -139,7 +300,7 @@ int ble_send_response(const char *response)
         return -EINVAL;
     }
 
-    if (!connected_state) {
+    if (!atomic_get(&connected_state)) {
         return -ENOTCONN;
     }
 
@@ -202,166 +363,130 @@ static void handle_command(const char *command)
      * reference resistor.
      */
     if (strcmp(command, "DMM:GET_STATE") == 0) {
-        if (current_dmm_mode == DMM_MODE_RESISTANCE) {
-            char response[96];
-
-            snprintf(
-                response,
-                sizeof(response),
-                "DMM:STATE MODE=RESISTANCE;RANGE=%s;RREF=%.0f",
-                resistance_get_range_name(),
-                resistance_get_rref_ohms()
-            );
-
-            ble_send_response(response);
+        char response[96];
+        k_mutex_lock(&dmm_mutex, K_FOREVER);
+        dmm_mode_t mode = (dmm_mode_t)atomic_get(&current_dmm_mode);
+        if (mode == DMM_MODE_CONTINUITY) {
+            snprintf(response, sizeof(response),
+                     "DMM:STATE MODE=CONTINUITY;RANGE=10K;RREF=10000");
+        } else if (mode == DMM_MODE_RESISTANCE) {
+            snprintf(response, sizeof(response),
+                     "DMM:STATE MODE=RESISTANCE;RANGE=%s;RREF=%.0f",
+                     resistance_get_range_name(), resistance_get_rref_ohms());
         } else {
-            ble_send_response(
-                "DMM:STATE MODE=VOLTAGE;RANGE=FIXED"
-            );
+            snprintf(response, sizeof(response), "DMM:STATE MODE=VOLTAGE;RANGE=FIXED");
         }
-
-        return;
-    }
-
-    /*
-     * Switch to voltage mode.
-     */
-    if (strcmp(command, "DMM:SET_MODE VOLTAGE") == 0) {
-
-        resistance_exit_mode();
-
-        if (!ads1220_config_voltage()) {
-            ble_send_response("ERR ADC_CONFIG_FAILED");
-            return;
-        }
-
-        k_msleep(25);
-
-        current_dmm_mode = DMM_MODE_VOLTAGE;
-
-        ble_send_response(
-            "DMM:STATE MODE=VOLTAGE;RANGE=FIXED"
-        );
-
-        return;
-    }
-
-    /*
-     * Switch to resistance mode.
-     *
-     * resistance_enter_mode() starts at the 10K reference.
-     */
-    if (strcmp(command, "DMM:SET_MODE RESISTANCE") == 0) {
-
-        if (!resistance_enter_mode()) {
-            ble_send_response("ERR ADC_CONFIG_FAILED");
-            return;
-        }
-
-        current_dmm_mode = DMM_MODE_RESISTANCE;
-
-        char response[96];
-
-        snprintf(
-            response,
-            sizeof(response),
-            "DMM:STATE MODE=RESISTANCE;RANGE=%s;RREF=%.0f",
-            resistance_get_range_name(),
-            resistance_get_rref_ohms()
-        );
-
+        k_mutex_unlock(&dmm_mutex);
         ble_send_response(response);
-
         return;
     }
 
-    /*
-     * Take one DMM measurement.
-     */
-    if (strcmp(command, "DMM:READ") == 0) {
+    /* All mode transitions disable the buzzer/relay BEFORE changing the ADC. */
+    if (strcmp(command, "DMM:SET_MODE VOLTAGE") == 0 ||
+        strcmp(command, "DMM:SET_MODE RESISTANCE") == 0 ||
+        strcmp(command, "DMM:SET_MODE CONTINUITY") == 0) {
+
+        continuity_disable_immediately();
+        k_mutex_lock(&dmm_mutex, K_FOREVER);
+        continuity_has_sample = false;
+        continuity_result = RESISTANCE_RESULT_ERROR;
+
+        bool ok = false;
         char response[96];
+        if (strcmp(command, "DMM:SET_MODE VOLTAGE") == 0) {
+            resistance_exit_mode();
+            atomic_set(&current_dmm_mode, DMM_MODE_VOLTAGE);
+            ok = ads1220_config_voltage();
+            if (ok) {
+                k_msleep(25);
+                snprintf(response, sizeof(response), "DMM:STATE MODE=VOLTAGE;RANGE=FIXED");
+            }
+        } else if (strcmp(command, "DMM:SET_MODE RESISTANCE") == 0) {
+            ok = resistance_enter_mode();
+            if (ok) {
+                atomic_set(&current_dmm_mode, DMM_MODE_RESISTANCE);
+                snprintf(response, sizeof(response),
+                         "DMM:STATE MODE=RESISTANCE;RANGE=%s;RREF=%.0f",
+                         resistance_get_range_name(), resistance_get_rref_ohms());
+            }
+        } else {
+            /* Keep the existing 10K reference and relay setup, but use a
+             * much faster ADC rate only in continuity mode. */
+            ok = resistance_enter_mode();
+            if (ok) {
+                ok = ads1220_config_continuity();
+            }
+            if (ok) {
+                atomic_set(&current_dmm_mode, DMM_MODE_CONTINUITY);
+                snprintf(response, sizeof(response),
+                         "DMM:STATE MODE=CONTINUITY;RANGE=10K;RREF=10000");
+                atomic_set(&continuity_active, 1);
+            }
+        }
 
-        /*
-         * Voltage measurement.
-         */
-        if (current_dmm_mode == DMM_MODE_VOLTAGE) {
+        if (!ok) {
+            resistance_exit_mode();
+            atomic_set(&current_dmm_mode, DMM_MODE_VOLTAGE);
+            (void)ads1220_config_voltage();
+        }
+        k_mutex_unlock(&dmm_mutex);
+
+        ble_send_response(ok ? response : "ERR ADC_CONFIG_FAILED");
+        if (ok && atomic_get(&continuity_active)) {
+            k_sem_give(&continuity_wake);
+        }
+        return;
+    }
+
+    if (strcmp(command, "DMM:READ") == 0) {
+        char response[128];
+        bool ok = false;
+        k_mutex_lock(&dmm_mutex, K_FOREVER);
+        dmm_mode_t mode = (dmm_mode_t)atomic_get(&current_dmm_mode);
+
+        if (mode == DMM_MODE_VOLTAGE) {
             double volts;
-
-            if (!voltage_read(&volts)) {
-                ble_send_response("ERR DMM_READ_FAILED");
-                return;
+            if (voltage_read(&volts)) {
+                snprintf(response, sizeof(response), "DMM:VALUE %.6f;UNIT=V", volts);
+                ok = true;
             }
-
-            snprintf(
-                response,
-                sizeof(response),
-                "DMM:VALUE %.6f;UNIT=V",
-                volts
-            );
-
-            ble_send_response(response);
-            return;
-        }
-
-        /*
-         * Resistance measurement.
-         *
-         * resistance_read() performs autoranging and leaves the
-         * TMUX on the range used for the final reading.
-         */
-        if (current_dmm_mode == DMM_MODE_RESISTANCE) {
+        } else if (mode == DMM_MODE_RESISTANCE) {
             double ohms;
-
-            resistance_result_t result =
-                resistance_read(&ohms);
-
-            /*
-             * Open circuit is a valid measurement state.
-             */
+            resistance_result_t result = resistance_read(&ohms);
             if (result == RESISTANCE_RESULT_OPEN) {
-                snprintf(
-                    response,
-                    sizeof(response),
-                    "DMM:VALUE OL;UNIT=OHM;RANGE=%s;RREF=%.0f",
-                    resistance_get_range_name(),
-                    resistance_get_rref_ohms()
-                );
-
-                ble_send_response(response);
-                return;
+                snprintf(response, sizeof(response),
+                         "DMM:VALUE OL;UNIT=OHM;RANGE=%s;RREF=%.0f",
+                         resistance_get_range_name(), resistance_get_rref_ohms());
+                ok = true;
+            } else if (result == RESISTANCE_RESULT_OK) {
+                snprintf(response, sizeof(response),
+                         "DMM:VALUE %.3f;UNIT=OHM;RANGE=%s;RREF=%.0f",
+                         ohms, resistance_get_range_name(), resistance_get_rref_ohms());
+                ok = true;
             }
-
-            /*
-             * Actual ADC / measurement failure.
-             */
-            if (result != RESISTANCE_RESULT_OK) {
-                ble_send_response(
-                    "ERR DMM_READ_FAILED"
-                );
-                return;
+        } else if (mode == DMM_MODE_CONTINUITY && continuity_has_sample) {
+            const int detected = atomic_get(&buzzer_tone_active) ? 1 : 0;
+            if (continuity_result == RESISTANCE_RESULT_OPEN) {
+                snprintf(response, sizeof(response),
+                         "DMM:VALUE OL;UNIT=OHM;MODE=CONTINUITY;CONT=0;RANGE=10K;RREF=10000");
+                ok = true;
+            } else if (continuity_result == RESISTANCE_RESULT_OK) {
+                snprintf(response, sizeof(response),
+                         "DMM:VALUE %.3f;UNIT=OHM;MODE=CONTINUITY;CONT=%d;RANGE=10K;RREF=10000",
+                         continuity_ohms, detected);
+                ok = true;
             }
-
-            /*
-             * Normal resistance result.
-             */
-            snprintf(
-                response,
-                sizeof(response),
-                "DMM:VALUE %.3f;UNIT=OHM;RANGE=%s;RREF=%.0f",
-                ohms,
-                resistance_get_range_name(),
-                resistance_get_rref_ohms()
-            );
-
-            ble_send_response(response);
-            return;
         }
+        k_mutex_unlock(&dmm_mutex);
+        ble_send_response(ok ? response : "ERR DMM_READ_FAILED");
+        return;
     }
 
     /*
      * Controlled software power-down.
      */
     if (strcmp(command, "POWER:SHUTDOWN") == 0) {
+        continuity_disable_immediately();
         ble_send_response("OK SHUTTING_DOWN");
 
         /*
@@ -493,7 +618,7 @@ static int start_advertising(void)
 
     if (err) {
         printk("Advertising failed: %d\n", err);
-        led_set_disconnected();
+        led_off();
         return err;
     }
 
@@ -536,7 +661,7 @@ static void connected(
         return;
     }
 
-    connected_state = true;
+    atomic_set(&connected_state, 1);
     restart_advertising = false;
 
     printk("BLE connected\n");
@@ -550,12 +675,16 @@ static void disconnected(
 {
     ARG_UNUSED(conn);
 
-    connected_state = false;
+    atomic_clear(&connected_state);
     restart_advertising = true;
 
-    printk("BLE disconnected: %u\n", reason);
+    /* Immediately remove buzzer enable and resistance excitation. */
+    continuity_disable_immediately();
+    atomic_set(&current_dmm_mode, DMM_MODE_VOLTAGE);
 
-    led_set_disconnected();
+    printk("BLE disconnected: %u\n", reason);
+    led_off();
+    k_work_submit(&disconnect_safe_mode_work);
 }
 
 static void recycled(void)
@@ -585,11 +714,13 @@ int ble_init(void)
 {
     int err;
 
-    connected_state = false;
+    atomic_clear(&connected_state);
     restart_advertising = false;
     last_command[0] = '\0';
 
-    led_set_disconnected();
+    /* Safe power-on relay state independent of RGB LED state. */
+    continuity_disable_immediately();
+    led_off();
 
     err = bt_enable(NULL);
 
@@ -605,5 +736,5 @@ int ble_init(void)
 
 bool ble_is_connected(void)
 {
-    return connected_state;
+    return atomic_get(&connected_state) != 0;
 }
