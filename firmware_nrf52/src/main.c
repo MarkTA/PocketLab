@@ -7,6 +7,9 @@
 #include "ads1220.h"
 #include "resistance.h"
 
+/* Power down after two minutes without a BLE connection. */
+#define BLE_DISCONNECT_TIMEOUT_MS 120000LL
+
 int main(void)
 {
     power_init();
@@ -30,10 +33,32 @@ int main(void)
         printk("ADS1220 init failed\n");
     }
 
-    // k_msleep(5 * 60 * 1000);
-    //     power_shutdown();
+    /*
+     * The idle timer starts at boot, so a device that is never connected
+     * also shuts down. While connected, the timer stays disarmed. An
+     * unexpected disconnect starts a fresh two-minute grace period.
+     *
+     * Keep the final shutdown on the main thread: power_shutdown()
+     * disables the rails, releases the power latch, and does not return.
+     */
+    int64_t disconnected_since_ms = k_uptime_get();
+    printk("[POWER] No BLE connection; shutdown in 120 seconds\n");
 
     while (1) {
+        if (ble_is_connected()) {
+            disconnected_since_ms = -1;
+        } else {
+            if (disconnected_since_ms < 0) {
+                disconnected_since_ms = k_uptime_get();
+                printk("[POWER] BLE disconnected; shutdown in 120 seconds\n");
+            }
+
+            if (k_uptime_get() - disconnected_since_ms >= BLE_DISCONNECT_TIMEOUT_MS) {
+                printk("[POWER] BLE idle timeout; shutting down\n");
+                power_shutdown();
+            }
+        }
+
         k_sleep(K_SECONDS(1));
     }
 }
