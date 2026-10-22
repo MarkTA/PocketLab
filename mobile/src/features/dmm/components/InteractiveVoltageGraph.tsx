@@ -212,14 +212,10 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
   // Unlike snapping the marker to a sample timestamp, this never jumps to
   // the right-hand edge when a 30 s viewport has only a few seconds of data.
   // Diagnostic version: bounded logs for cursor start/selection.
-  const inspectLogCount = useRef(0);
+  
   function inspect(x: number) {
     const d = dataRef.current;
-    const verbose = inspectLogCount.current++ < 12;
-    // if (verbose) console.log("[GRAPH INSPECT START]", {
-    //   x, size: d.size, graphWidth: d.graphWidth,
-    //   viewport: d.viewport, pointCount: d.points.length,
-    // });
+    
     if (d.size.width <= LEFT + RIGHT || d.graphWidth <= 1) {
       // console.warn("[GRAPH INSPECT EXIT] invalid graph dimensions", d.size);
       return;
@@ -384,7 +380,7 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
     onMoveShouldSetPanResponder: e => e.nativeEvent.touches.length === 1,
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: e => {
-      inspectLogCount.current = 0;
+      
       const x = localSvgX(e.nativeEvent.locationX);
       // The overlay's locationX/Y is relative to the graph interior.
       const y = TOP + e.nativeEvent.locationY;
