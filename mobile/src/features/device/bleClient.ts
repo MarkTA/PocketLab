@@ -108,15 +108,15 @@ class BleDiagnostic {
     const currentState = await this.manager.state();
 
     if (currentState === State.PoweredOn) {
-      console.log("[BLE] Bluetooth is powered on");
+      //console.log("[BLE] Bluetooth is powered on");
       return;
     }
 
-    console.log(`[BLE] Waiting for Bluetooth. Current state: ${currentState}`);
+    //console.log(`[BLE] Waiting for Bluetooth. Current state: ${currentState}`);
 
     await new Promise<void>((resolve, reject) => {
       const subscription = this.manager.onStateChange((state) => {
-        console.log(`[BLE] State changed: ${state}`);
+        //console.log(`[BLE] State changed: ${state}`);
 
         if (state === State.PoweredOn) {
           subscription.remove();
@@ -149,7 +149,7 @@ class BleDiagnostic {
 
     this.stopScan();
 
-    console.log("[BLE] Starting scan");
+    //console.log("[BLE] Starting scan");
 
     this.manager.startDeviceScan(null, null, (error, device) => {
       if (error) {
@@ -164,7 +164,7 @@ class BleDiagnostic {
 
       const displayName = device.name ?? device.localName ?? "Unnamed BLE device";
 
-      console.log(`[BLE] Found: ${displayName}, ID: ${device.id}, RSSI: ${device.rssi}`);
+      //console.log(`[BLE] Found: ${displayName}, ID: ${device.id}, RSSI: ${device.rssi}`);
 
       /*
        * Show every device during development.
@@ -177,7 +177,7 @@ class BleDiagnostic {
   }
 
   public stopScan(): void {
-    console.log("[BLE] Stopping scan");
+    //console.log("[BLE] Stopping scan");
     this.manager.stopDeviceScan();
   }
 
@@ -213,13 +213,13 @@ class BleDiagnostic {
   }
 
   private async connectOnce(device: Device): Promise<Device> {
-    console.log(`[BLE] Connecting to ${device.name ?? device.id}`);
+    //console.log(`[BLE] Connecting to ${device.name ?? device.id}`);
 
     let connectedDevice = await device.connect({
       timeout: 10000,
     });
 
-    console.log("[BLE] Connected");
+    //console.log("[BLE] Connected");
 
     /*
      * Request a larger MTU before service discovery and notification setup.
@@ -228,7 +228,7 @@ class BleDiagnostic {
     try {
       connectedDevice = await connectedDevice.requestMTU(247);
 
-      console.log(`[BLE] MTU negotiated: ${connectedDevice.mtu}`);
+      //console.log(`[BLE] MTU negotiated: ${connectedDevice.mtu}`);
     } catch (error) {
       /*
        * A larger MTU is useful but not required for basic commands.
@@ -239,7 +239,7 @@ class BleDiagnostic {
 
     connectedDevice = await connectedDevice.discoverAllServicesAndCharacteristics();
 
-    console.log("[BLE] Service discovery complete");
+    //console.log("[BLE] Service discovery complete");
 
     /*
      * This connection is now the authoritative session.
@@ -267,14 +267,14 @@ class BleDiagnostic {
        * a newer connection that has already replaced it.
        */
       if (generation !== this.connectionGeneration) {
-        console.log("[BLE] Ignoring stale disconnect callback");
+        //console.log("[BLE] Ignoring stale disconnect callback");
         return;
       }
 
       if (error) {
         console.error("[BLE] Device disconnected with error:", error);
       } else {
-        console.log("[BLE] Device disconnected");
+        //console.log("[BLE] Device disconnected");
       }
 
       this.stopResponseMonitor();
@@ -291,7 +291,7 @@ class BleDiagnostic {
       onDisconnected?.(normalizedError);
 
       if (this.intentionalDisconnect) {
-        console.log("[BLE] Manual disconnect; skipping reconnect");
+        //console.log("[BLE] Manual disconnect; skipping reconnect");
         return;
       }
 
@@ -319,7 +319,7 @@ class BleDiagnostic {
 
       const waitMilliseconds = Math.min(attempt * 1000, 5000);
 
-      console.log(`[BLE] Reconnect attempt ${attempt} in ${waitMilliseconds} ms`);
+      //console.log(`[BLE] Reconnect attempt ${attempt} in ${waitMilliseconds} ms`);
 
       await delay(waitMilliseconds);
 
@@ -335,9 +335,9 @@ class BleDiagnostic {
          * awaiting the native connection.
          */
         if (this.intentionalDisconnect) {
-          console.log(
-            "[BLE] Reconnect completed after manual disconnect; cancelling connection"
-          );
+          // console.log(
+          //   "[BLE] Reconnect completed after manual disconnect; cancelling connection"
+          // );
 
           this.connectionGeneration += 1;
           this.connectedDevice = null;
@@ -359,7 +359,7 @@ class BleDiagnostic {
           onReconnected
         );
 
-        console.log("[BLE] Reconnected successfully");
+        //console.log("[BLE] Reconnected successfully");
 
         this.reconnecting = false;
         onReconnected?.(reconnectedDevice);
@@ -394,11 +394,11 @@ class BleDiagnostic {
     this.connectedDevice = null;
 
     if (!device) {
-      console.log("[BLE] No active device to disconnect");
+      //console.log("[BLE] No active device to disconnect");
       return;
     }
 
-    console.log(`[BLE] Disconnecting ${device.id}`);
+    //console.log(`[BLE] Disconnecting ${device.id}`);
 
     try {
       await this.manager.cancelDeviceConnection(device.id);
@@ -425,10 +425,10 @@ class BleDiagnostic {
     const results: DiscoveredCharacteristic[] = [];
     const services = await device.services();
 
-    console.log(`[BLE] Found ${services.length} services`);
+    //console.log(`[BLE] Found ${services.length} services`);
 
     for (const service of services) {
-      console.log(`[BLE] Service: ${service.uuid}`);
+      //console.log(`[BLE] Service: ${service.uuid}`);
 
       const characteristics = await service.characteristics();
 
@@ -445,7 +445,7 @@ class BleDiagnostic {
 
         results.push(info);
 
-        console.log("[BLE] Characteristic:", info);
+        //console.log("[BLE] Characteristic:", info);
       }
     }
 
@@ -461,7 +461,7 @@ class BleDiagnostic {
 
     this.stopResponseMonitor();
 
-    console.log("[BLE] Subscribing to PocketLab responses");
+    //console.log("[BLE] Subscribing to PocketLab responses");
 
     this.responseSubscription = device.monitorCharacteristicForService(
       POCKETLAB_SERVICE_UUID,
@@ -473,7 +473,7 @@ class BleDiagnostic {
            * during disconnect or reconnect.
            */
           if (this.intentionalDisconnect || !this.connectedDevice) {
-            console.log("[BLE] Response monitor ended");
+            //console.log("[BLE] Response monitor ended");
             return;
           }
 
@@ -488,7 +488,7 @@ class BleDiagnostic {
 
         const response = Buffer.from(characteristic.value, "base64").toString("utf8");
 
-        console.log(`[BLE] Response received: "${response}"`);
+        //console.log(`[BLE] Response received: "${response}"`);
 
         for (const listener of this.responseListeners) {
           listener(response);
@@ -505,7 +505,7 @@ class BleDiagnostic {
     this.responseSubscription.remove();
     this.responseSubscription = null;
 
-    console.log("[BLE] Response monitor stopped");
+    //console.log("[BLE] Response monitor stopped");
   }
 
   // ---------------------------------------------------------------------------
@@ -523,12 +523,12 @@ class BleDiagnostic {
 
     const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
 
-    console.log("[BLE] Writing PocketLab command:", {
-      command: normalizedCommand,
-      serviceUUID: POCKETLAB_SERVICE_UUID,
-      characteristicUUID: COMMAND_RX_UUID,
-      encodedValue,
-    });
+    // console.log("[BLE] Writing PocketLab command:", {
+    //   command: normalizedCommand,
+    //   serviceUUID: POCKETLAB_SERVICE_UUID,
+    //   characteristicUUID: COMMAND_RX_UUID,
+    //   encodedValue,
+    // });
 
     const result = await device.writeCharacteristicWithResponseForService(
       POCKETLAB_SERVICE_UUID,
@@ -536,11 +536,11 @@ class BleDiagnostic {
       encodedValue
     );
 
-    console.log("[BLE] Command write accepted:", {
-      serviceUUID: result.serviceUUID,
-      characteristicUUID: result.uuid,
-      value: result.value,
-    });
+    // console.log("[BLE] Command write accepted:", {
+    //   serviceUUID: result.serviceUUID,
+    //   characteristicUUID: result.uuid,
+    //   value: result.value,
+    // });
   }
 
   /**
@@ -557,16 +557,16 @@ class BleDiagnostic {
     const connected = await device.isConnected();
     const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
 
-    console.log("[BLE DIRECT TEST] Starting:", {
-      deviceId: device.id,
-      deviceName: device.name ?? device.localName ?? null,
-      connected,
-      connectionGeneration: this.connectionGeneration,
-      serviceUUID: POCKETLAB_SERVICE_UUID,
-      characteristicUUID: COMMAND_RX_UUID,
-      command: normalizedCommand,
-      encodedValue,
-    });
+    // console.log("[BLE DIRECT TEST] Starting:", {
+    //   deviceId: device.id,
+    //   deviceName: device.name ?? device.localName ?? null,
+    //   connected,
+    //   connectionGeneration: this.connectionGeneration,
+    //   serviceUUID: POCKETLAB_SERVICE_UUID,
+    //   characteristicUUID: COMMAND_RX_UUID,
+    //   command: normalizedCommand,
+    //   encodedValue,
+    // });
 
     if (!connected) {
       throw new Error(
@@ -580,15 +580,15 @@ class BleDiagnostic {
       encodedValue
     );
 
-    console.log("[BLE DIRECT TEST] Write accepted:", {
-      deviceId: device.id,
-      writeDeviceId: writeResult.deviceID,
-      serviceUUID: writeResult.serviceUUID,
-      characteristicUUID: writeResult.uuid,
-      value: writeResult.value,
-      isWritableWithResponse: writeResult.isWritableWithResponse,
-      isWritableWithoutResponse: writeResult.isWritableWithoutResponse,
-    });
+    // console.log("[BLE DIRECT TEST] Write accepted:", {
+    //   deviceId: device.id,
+    //   writeDeviceId: writeResult.deviceID,
+    //   serviceUUID: writeResult.serviceUUID,
+    //   characteristicUUID: writeResult.uuid,
+    //   value: writeResult.value,
+    //   isWritableWithResponse: writeResult.isWritableWithResponse,
+    //   isWritableWithoutResponse: writeResult.isWritableWithoutResponse,
+    // });
 
     await delay(500);
 
@@ -601,14 +601,14 @@ class BleDiagnostic {
       ? Buffer.from(readResult.value, "base64").toString("utf8")
       : "";
 
-    console.log("[BLE DIRECT TEST] Read-back:", {
-      deviceId: device.id,
-      readDeviceId: readResult.deviceID,
-      serviceUUID: readResult.serviceUUID,
-      characteristicUUID: readResult.uuid,
-      encodedValue: readResult.value,
-      decodedValue,
-    });
+    // console.log("[BLE DIRECT TEST] Read-back:", {
+    //   deviceId: device.id,
+    //   readDeviceId: readResult.deviceID,
+    //   serviceUUID: readResult.serviceUUID,
+    //   characteristicUUID: readResult.uuid,
+    //   encodedValue: readResult.value,
+    //   decodedValue,
+    // });
 
     return decodedValue;
   }
@@ -624,7 +624,7 @@ class BleDiagnostic {
 
     const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
 
-    console.log(`[BLE] Writing without response: "${normalizedCommand}"`);
+    //console.log(`[BLE] Writing without response: "${normalizedCommand}"`);
 
     await device.writeCharacteristicWithoutResponseForService(
       POCKETLAB_SERVICE_UUID,
@@ -632,7 +632,7 @@ class BleDiagnostic {
       encodedValue
     );
 
-    console.log("[BLE] Write without response submitted");
+    //console.log("[BLE] Write without response submitted");
   }
 
   /**
@@ -653,7 +653,7 @@ class BleDiagnostic {
       ? Buffer.from(characteristic.value, "base64").toString("utf8")
       : "";
 
-    console.log(`[BLE] Command RX read-back value: "${value}"`);
+    //console.log(`[BLE] Command RX read-back value: "${value}"`);
 
     return value;
   }
@@ -732,7 +732,7 @@ class BleDiagnostic {
 
     this.manager.destroy();
 
-    console.log("[BLE] BLE manager destroyed");
+    //console.log("[BLE] BLE manager destroyed");
   }
 
   private requireConnectedDevice(): Device {

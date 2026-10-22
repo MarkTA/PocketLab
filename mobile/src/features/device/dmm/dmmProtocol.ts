@@ -38,7 +38,7 @@ export function parseDmmState(response: string): DmmState {
 
   const mode = values.get("MODE");
 
-  if (mode !== "RESISTANCE" && mode !== "VOLTAGE") {
+  if (mode !== "RESISTANCE" && mode !== "VOLTAGE" && mode !== "CONTINUITY") {
     throw new Error(`Invalid DMM mode in response: "${response}"`);
   }
 
@@ -105,13 +105,22 @@ export function parseDmmReading(response: string): ParsedDmmReading {
   const range = values.get("RANGE");
   let inferredState: DmmState | null = null;
   const rrefRaw = values.get("RREF");
+  const rawMode = values.get("MODE");
+  const rawContinuity = values.get("CONT");
+
+  if (rawMode !== undefined && rawMode !== "CONTINUITY" && rawMode !== "RESISTANCE") {
+    throw new Error(`Invalid DMM reading mode in response: "${response}"`);
+  }
+  if (rawContinuity !== undefined && rawContinuity !== "0" && rawContinuity !== "1") {
+    throw new Error(`Invalid continuity status in response: "${response}"`);
+  }
 
   if (unit === "OHM" && range && rrefRaw !== undefined) {
     const rrefOhms = Number(rrefRaw);
 
     if (Number.isFinite(rrefOhms)) {
       inferredState = {
-        mode: "RESISTANCE",
+        mode: rawMode === "CONTINUITY" ? "CONTINUITY" : "RESISTANCE",
         range,
         rrefOhms,
       };
@@ -135,6 +144,7 @@ export function parseDmmReading(response: string): ParsedDmmReading {
       value: null,
       unit,
       overload: true,
+      ...(rawContinuity !== undefined ? { continuity: rawContinuity === "1" } : {}),
     };
 
     return { reading, inferredState };
@@ -150,6 +160,7 @@ export function parseDmmReading(response: string): ParsedDmmReading {
     value,
     unit,
     overload: false,
+    ...(rawContinuity !== undefined ? { continuity: rawContinuity === "1" } : {}),
   };
 
   return { reading, inferredState };

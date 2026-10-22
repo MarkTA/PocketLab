@@ -1,325 +1,118 @@
 /* src/features/dmm/DmmScreen.tsx */
-
 import { useIsFocused } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { AppState, ScrollView, StyleSheet, View } from "react-native";
-import { Button, Text } from "react-native-paper";
-
+import { AppState, StyleSheet, View } from "react-native";
+import { Button, IconButton, Snackbar, Text } from "react-native-paper";
 import { Screen } from "../../components/layout/Screen";
 import { ScreenHeader } from "../../components/layout/ScreenHeader";
 import { DrawerMenuButton } from "../../components/navigation/DrawerMenuButton";
-
-import { pocketLabColors } from "../../themes/theme";
-
+import { pocketLabColors as c } from "../../themes/theme";
 import { usePocketLabDevice } from "../device/DeviceProvider";
 import { DeviceStatusCard } from "../device/DeviceStatusCard";
 import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
-import { VoltageTimeGraph } from "./components/VoltageTimeGraph";
+import { InteractiveVoltageGraph } from "./components/InteractiveVoltageGraph";
 import { useContinuousDmm } from "./hooks/useContinuousDmm";
 
 export function DmmScreen() {
-  const { state, reconnecting, capabilities, dmmState, requestDmmReading, setDmmMode } =
-    usePocketLabDevice();
-
+  const { state, reconnecting, capabilities, dmmState, requestDmmReading, setDmmMode } = usePocketLabDevice();
   const [deviceSheetVisible, setDeviceSheetVisible] = useState(false);
-  const [showVoltageGraph, setShowVoltageGraph] = useState(false);
+  const [saveNoticeVisible, setSaveNoticeVisible] = useState(false);
+  const [inspectedVoltage, setInspectedVoltage] = useState<number | null>(null);
+  const [recordNoticeVisible, setRecordNoticeVisible] = useState(false);
   const isFocused = useIsFocused();
-  const [appActive, setAppActive] = useState(
-    AppState.currentState === "active" || AppState.currentState == null
-  );
+  const [appActive, setAppActive] = useState(AppState.currentState === "active" || AppState.currentState == null);
 
   useEffect(() => {
-    const subscription = AppState.addEventListener("change", (nextState) => {
-      setAppActive(nextState === "active");
-    });
-    return () => subscription.remove();
+    const sub = AppState.addEventListener("change", next => setAppActive(next === "active"));
+    return () => sub.remove();
   }, []);
 
   const dmmSupported = capabilities?.features.includes("DMM") ?? false;
   const connectedAndReady = state.connected && dmmSupported && dmmState !== null;
-  const mode = dmmState?.mode ?? "RESISTANCE";
+  const mode = dmmState?.mode ?? "VOLTAGE";
+  const streamEnabled = connectedAndReady && isFocused && appActive && !deviceSheetVisible;
+  const { reading: dmmReading, samples, error: readingError,
+    switchingMode, changeMode, stopForDeviceSheet } = useContinuousDmm({
+      connected: state.connected, enabled: streamEnabled, mode: dmmState?.mode ?? null,
+      requestDmmReading, setDmmMode,
+    });
 
-  // Only poll while the meter screen is visible, connected, and foregrounded.
-  const streamEnabled =
-    connectedAndReady && isFocused && appActive && !deviceSheetVisible;
-  const {
-    reading: dmmReading,
-    samples,
-    error: readingError,
-    paused,
-    setPaused,
-    readingPending,
-    switchingMode,
-    polling,
-    changeMode,
-    readOnce,
-    stopForDeviceSheet,
-  } = useContinuousDmm({
-    connected: state.connected,
-    enabled: streamEnabled,
-    mode: dmmState?.mode ?? null,
-    requestDmmReading,
-    setDmmMode,
-  });
-
-  const showDeviceSheet = async () => {
-    // Ensure no DMM request is still pending before allowing shutdown.
-    await stopForDeviceSheet();
-    setDeviceSheetVisible(true);
-  };
+  const averagedVoltage = useMemo(() => {
+    if (mode !== "VOLTAGE" || samples.length === 0) return null;
+    const latest = samples[samples.length - 1].timestamp;
+    const valid = samples.filter(s => s.mode === "VOLTAGE" && s.unit === "V" &&
+      !s.overload && s.value !== null && Number.isFinite(s.value) && s.timestamp >= latest - 500);
+    return valid.length ? valid.reduce((sum, s) => sum + (s.value ?? 0), 0) / valid.length : null;
+  }, [mode, samples]);
 
   const formattedReading = useMemo(() => {
-    if (!dmmReading) {
-      return {
-        value: "—",
-        unit: displayUnitForMode(dmmState?.mode),
-      };
-    }
-
-    /*
-     * OL is a valid resistance measurement state.
-     */
-    if (dmmReading.overload) {
-      return {
-        value: "OL",
-        unit: "Ω",
-      };
-    }
-
-    /*
-     * A normal reading should always have a numeric value.
-     */
-    if (dmmReading.value === null) {
-      return {
-        value: "—",
-        unit: displayUnitForMode(dmmState?.mode),
-      };
-    }
-
+    if (mode === "VOLTAGE" && inspectedVoltage !== null) return formatDmmReading(inspectedVoltage, "V");
+    if (mode === "VOLTAGE" && averagedVoltage !== null) return formatDmmReading(averagedVoltage, "V");
+    if (!dmmReading) return { value: "—", unit: displayUnitForMode(mode) };
+    if (dmmReading.overload) return { value: "OL", unit: "Ω" };
+    if (dmmReading.value === null) return { value: "—", unit: displayUnitForMode(mode) };
     return formatDmmReading(dmmReading.value, dmmReading.unit);
-  }, [dmmReading, dmmState?.mode]);
+  }, [mode, inspectedVoltage, averagedVoltage, dmmReading]);
 
-  const connectionText = useMemo(() => {
-    if (reconnecting) {
-      return "Reconnecting…";
-    }
+  const selectMode = (nextMode: "VOLTAGE" | "RESISTANCE" | "CONTINUITY") => {
+    if (nextMode !== mode) { setInspectedVoltage(null); void changeMode(nextMode); }
+  };
+  const showDeviceSheet = async () => { await stopForDeviceSheet(); setDeviceSheetVisible(true); };
 
-    if (!state.connected) {
-      return "Not connected";
-    }
-
-    if (!dmmSupported) {
-      return "Connected device does not report DMM support";
-    }
-
-    if (!dmmState) {
-      return "Synchronizing meter…";
-    }
-
-    return "Ready";
-  }, [reconnecting, state.connected, dmmSupported, dmmState]);
-
-  const referenceText =
-    dmmState?.rrefOhms != null ? formatResistanceReference(dmmState.rrefOhms) : "—";
-
-  return (
-    <>
-      <Screen
-        header={
-          <ScreenHeader
-            title="PocketLab"
-            subtitle="Digital Multimeter"
-            left={<DrawerMenuButton />}
-            right={
-              <DeviceStatusCard
-                connected={state.connected}
-                reconnecting={reconnecting}
-                deviceName={state.deviceName}
-                onPress={() => {
-                  void showDeviceSheet();
-                }}
-              />
-            }
-          />
-        }
-      >
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.statusRow}>
-            <View
-              style={[
-                styles.statusDot,
-                {
-                  backgroundColor: connectedAndReady
-                    ? pocketLabColors.green
-                    : pocketLabColors.deviceOff,
-                },
-              ]}
-            />
-
-            <Text variant="bodySmall" style={styles.statusText}>
-              {connectionText}
+  return <View style={styles.screenRoot}>
+    <Screen header={<ScreenHeader title="PocketLab" subtitle="Digital Multimeter"
+      left={<DrawerMenuButton />} right={<DeviceStatusCard connected={state.connected}
+      reconnecting={reconnecting} deviceName={state.deviceName}
+      onPress={() => { void showDeviceSheet(); }} />} />}>
+      <View style={styles.content}>
+        <View style={styles.readout}>
+          <View style={styles.readingRow}>
+            <Text style={styles.readingValue} numberOfLines={1} adjustsFontSizeToFit>
+              {switchingMode ? "…" : formattedReading.value}
             </Text>
+            <Text style={styles.readingUnit}>{formattedReading.unit}</Text>
+            {(mode === "VOLTAGE" || mode === "RESISTANCE") &&
+              <IconButton icon="bookmark-outline" size={24} mode="contained-tonal"
+                style={styles.save} accessibilityLabel="Save measurement (coming soon)"
+                disabled={!connectedAndReady || switchingMode || formattedReading.value === "—" || formattedReading.value === "OL"}
+                onPress={() => setSaveNoticeVisible(true)} />}
           </View>
+          {mode === "CONTINUITY" && <Text style={styles.continuity}>
+            {dmmReading?.continuity === true ? "● Connected" : dmmReading?.continuity === false ? "○ Open" : "Checking…"}
+          </Text>}
+        </View>
+        {mode === "VOLTAGE" && <View style={styles.graphArea}>
+          <InteractiveVoltageGraph samples={samples}
+            onInspect={point => setInspectedVoltage(point?.value ?? null)} />
+        </View>}
+        {mode === "VOLTAGE" && <View style={styles.recordRow}>
+          <Button compact mode="outlined" icon="record-circle-outline"
+            onPress={() => setRecordNoticeVisible(true)}>Record (soon)</Button>
+        </View>}
+        {readingError && <Text style={styles.error}>{readingError}</Text>}
 
-          <View style={styles.displayCard}>
-            <Text variant="labelLarge" style={styles.measurementLabel}>
-              {mode === "RESISTANCE" ? "Resistance" : "DC Voltage"}
-            </Text>
-
-            <View style={styles.readingRow}>
-              <Text style={styles.readingValue} numberOfLines={1} adjustsFontSizeToFit>
-                {switchingMode ? "…" : formattedReading.value}
-              </Text>
-
-              <Text style={styles.readingUnit}>{formattedReading.unit}</Text>
-            </View>
-
-            <Text variant="bodySmall" style={styles.rangeLabel}>
-              Range: {dmmState?.range ?? "—"}
-            </Text>
-            <Text variant="bodySmall" style={styles.streamStatus}>
-              {polling
-                ? `LIVE · 5 Hz target · ${samples.length} buffered`
-                : paused && streamEnabled
-                  ? "Paused"
-                  : "Not measuring"}
-            </Text>
-          </View>
-
-          {mode === "VOLTAGE" ? (
-            <>
-              <Button
-                mode="outlined"
-                icon={showVoltageGraph ? "chart-line" : "chart-timeline-variant"}
-                onPress={() => setShowVoltageGraph((previous) => !previous)}
-              >
-                {showVoltageGraph ? "Hide V–t graph" : "Show V–t graph"}
-              </Button>
-
-              {showVoltageGraph ? (
-                <VoltageTimeGraph samples={samples} paused={paused} />
-              ) : null}
-            </>
-          ) : null}
-
-          <View style={styles.modeSection}>
-            <Text variant="labelLarge" style={styles.sectionTitle}>
-              Measurement
-            </Text>
-
-            <View style={styles.modeButtons}>
-              <Button
-                mode={mode === "RESISTANCE" ? "contained" : "outlined"}
-                icon="omega"
-                style={styles.modeButton}
-                contentStyle={styles.modeButtonContent}
-                disabled={!connectedAndReady || switchingMode}
-                onPress={() => {
-                  void changeMode("RESISTANCE");
-                }}
-              >
-                Resistance
-              </Button>
-
-              <Button
-                mode={mode === "VOLTAGE" ? "contained" : "outlined"}
-                icon="flash-outline"
-                style={styles.modeButton}
-                contentStyle={styles.modeButtonContent}
-                disabled={!connectedAndReady || switchingMode}
-                onPress={() => {
-                  void changeMode("VOLTAGE");
-                }}
-              >
-                Voltage
-              </Button>
-            </View>
-
-            <Text variant="bodySmall" style={styles.modeHint}>
-              {mode === "VOLTAGE" ? "DC voltage measurement" : "Resistance measurement"}
-            </Text>
-          </View>
-
-          <View style={styles.detailsCard}>
-            <DetailRow
-              label="Mode"
-              value={mode === "RESISTANCE" ? "Resistance" : "DC Voltage"}
-            />
-
-            <DetailRow label="Range" value={dmmState?.range ?? "—"} />
-
-            {mode === "RESISTANCE" ? (
-              <DetailRow label="Reference" value={referenceText} />
-            ) : null}
-          </View>
-
-          {readingError ? (
-            <View style={styles.errorCard}>
-              <Text variant="bodySmall" style={styles.errorText}>
-                {readingError}
-              </Text>
-            </View>
-          ) : null}
-
-          <View style={styles.controls}>
-            <Button
-              mode="contained"
-              icon={paused ? "play" : "pause"}
-              disabled={!streamEnabled || switchingMode}
-              onPress={() => setPaused((previous) => !previous)}
-              contentStyle={styles.readButtonContent}
-              style={styles.controlButton}
-            >
-              {paused ? "Resume" : "Pause"}
-            </Button>
-
-            {paused ? (
-              <Button
-                mode="outlined"
-                icon="refresh"
-                loading={readingPending}
-                disabled={!streamEnabled || readingPending || switchingMode}
-                onPress={() => void readOnce()}
-                contentStyle={styles.readButtonContent}
-                style={styles.controlButton}
-              >
-                Read Once
-              </Button>
-            ) : null}
-          </View>
-        </ScrollView>
-      </Screen>
-
-      <ScanDeviceSheet
-        visible={deviceSheetVisible}
-        onDismiss={() => {
-          setDeviceSheetVisible(false);
-        }}
-      />
-    </>
-  );
-}
-
-type DetailRowProps = {
-  label: string;
-  value: string;
-};
-
-function DetailRow({ label, value }: DetailRowProps) {
-  return (
-    <View style={styles.detailRow}>
-      <Text variant="bodyMedium" style={styles.detailLabel}>
-        {label}
-      </Text>
-
-      <Text variant="bodyMedium" style={styles.detailValue}>
-        {value}
-      </Text>
+      </View>
+    </Screen>
+    <View style={styles.footer} accessibilityRole="tablist">
+          {([ ["VOLTAGE", "Voltage", "flash-outline"], ["RESISTANCE", "Ohms", "omega"], ["CONTINUITY", "Continuity", "volume-high"] ] as const)
+            .map(([nextMode, label, icon]) => <Button key={nextMode} mode="text" compact
+              icon={icon} accessibilityRole="tab" accessibilityState={{ selected: mode === nextMode }}
+              disabled={!connectedAndReady || switchingMode} style={[styles.tab, mode === nextMode && styles.tabSelected]}
+              contentStyle={styles.tabContent} labelStyle={styles.tabLabel}
+              textColor={c.surface}
+              onPress={() => selectMode(nextMode)}>{label}</Button>)}
     </View>
-  );
+    <Snackbar visible={saveNoticeVisible} onDismiss={() => setSaveNoticeVisible(false)} duration={2500}>
+      Save measurement — coming soon
+    </Snackbar>
+    <Snackbar visible={recordNoticeVisible} onDismiss={() => setRecordNoticeVisible(false)} duration={2500}>
+      CSV recording — coming soon
+    </Snackbar>
+    <ScanDeviceSheet visible={deviceSheetVisible} onDismiss={() => setDeviceSheetVisible(false)} />
+  </View>;
 }
 
-function displayUnitForMode(mode: "RESISTANCE" | "VOLTAGE" | undefined): string {
+function displayUnitForMode(mode: "RESISTANCE" | "VOLTAGE" | "CONTINUITY" | undefined): string {
   switch (mode) {
     case "VOLTAGE":
       return "V";
@@ -389,168 +182,22 @@ function formatDmmReading(
   };
 }
 
-function formatResistanceReference(resistanceOhms: number): string {
-  if (resistanceOhms >= 1_000_000) {
-    return `${(resistanceOhms / 1_000_000).toFixed(3)} MΩ`;
-  }
-
-  if (resistanceOhms >= 1_000) {
-    return `${(resistanceOhms / 1_000).toFixed(3)} kΩ`;
-  }
-
-  return `${resistanceOhms.toFixed(1)} Ω`;
-}
-
 const styles = StyleSheet.create({
-  content: {
-    flexGrow: 1,
-    gap: 16,
-    paddingTop: 8,
-  },
-
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 4,
-  },
-
-  statusDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-  },
-
-  statusText: {
-    color: pocketLabColors.mutedText,
-  },
-
-  displayCard: {
-    minHeight: 220,
-    backgroundColor: pocketLabColors.surface,
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    justifyContent: "center",
-    alignItems: "center",
-
-    borderWidth: 1,
-    borderColor: pocketLabColors.grid,
-  },
-
-  measurementLabel: {
-    color: pocketLabColors.mutedText,
-    marginBottom: 14,
-  },
-
-  readingRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "center",
-    width: "100%",
-  },
-
-  readingValue: {
-    color: pocketLabColors.text,
-    fontSize: 58,
-    lineHeight: 66,
-    fontWeight: "500",
-    fontVariant: ["tabular-nums"],
-    maxWidth: "78%",
-  },
-
-  readingUnit: {
-    color: pocketLabColors.darkTeal,
-    fontSize: 25,
-    lineHeight: 34,
-    fontWeight: "600",
-    marginLeft: 8,
-  },
-
-  rangeLabel: {
-    color: pocketLabColors.mutedText,
-    marginTop: 12,
-  },
-
-  modeSection: {
-    gap: 8,
-  },
-
-  sectionTitle: {
-    color: pocketLabColors.text,
-  },
-
-  modeButtons: {
-    flexDirection: "row",
-    gap: 10,
-  },
-
-  modeButton: {
-    flex: 1,
-  },
-
-  modeButtonContent: {
-    minHeight: 48,
-  },
-
-  modeHint: {
-    color: pocketLabColors.mutedText,
-    paddingHorizontal: 2,
-  },
-
-  detailsCard: {
-    backgroundColor: pocketLabColors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-
-    borderWidth: 1,
-    borderColor: pocketLabColors.grid,
-  },
-
-  detailRow: {
-    minHeight: 44,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  detailLabel: {
-    color: pocketLabColors.mutedText,
-  },
-
-  detailValue: {
-    color: pocketLabColors.text,
-    fontWeight: "600",
-  },
-
-  controls: {
-    marginTop: 2,
-    flexDirection: "row",
-    gap: 10,
-  },
-
-  controlButton: {
-    flex: 1,
-  },
-
-  streamStatus: {
-    color: pocketLabColors.mutedText,
-    marginTop: 8,
-  },
-
-  readButtonContent: {
-    minHeight: 52,
-  },
-
-  errorCard: {
-    borderWidth: 1,
-    borderColor: pocketLabColors.danger,
-    borderRadius: 8,
-    padding: 12,
-  },
-
-  errorText: {
-    color: pocketLabColors.danger,
-  },
+  screenRoot: { flex: 1, minHeight: 0 },
+  content: { flex: 1, minHeight: 0, paddingTop: 4, paddingBottom: 4, gap: 8 },
+  // The reading and graph share the available height; no screen-level scrolling.
+  readout: { flex: 0.65, minHeight: 80, justifyContent: "center", alignItems: "center", position: "relative" },
+  readingRow: { width: "100%", flexDirection: "row", justifyContent: "center", alignItems: "baseline", paddingHorizontal: 12, position: "relative" },
+  readingValue: { fontSize: 58, lineHeight: 70, fontWeight: "500", fontVariant: ["tabular-nums"], color: c.text, maxWidth: "78%" },
+  readingUnit: { fontSize: 24, color: c.darkTeal, marginLeft: 8, fontWeight: "600" },
+  save: { position: "absolute", right: 4, top: "50%", marginTop: -24, margin: 0 },
+  continuity: { color: c.mutedText, marginTop: 8 },
+  graphArea: { flex: 1.6, minHeight: 0, width: "100%" },
+  recordRow: { flexDirection: "row", justifyContent: "flex-end" },
+  footer: { flexDirection: "row", flexShrink: 0, borderTopWidth: 1, borderTopColor: c.darkTeal, backgroundColor: c.darkTeal },
+  tab: { flex: 1, borderRadius: 0 },
+  tabSelected: { borderTopWidth: 3, borderTopColor: c.green },
+  tabContent: { minHeight: 56, paddingHorizontal: 0, flexDirection: "column" },
+  tabLabel: { fontSize: 11, marginHorizontal: 0 },
+  error: { color: c.danger, fontSize: 12 },
 });

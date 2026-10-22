@@ -110,17 +110,17 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const { scanning, discoveredDevices, scanForDevices, stopScan } = useBleScanner();
 
   const requestDmmState = useCallback(async (): Promise<DmmState> => {
-    console.log("[DMM] Requesting state...");
+    //console.log("[DMM] Requesting state...");
 
     const response = await bleDiagnostic.request("DMM:GET_STATE");
 
-    console.log("[DMM] State response:", response);
+    //console.log("[DMM] State response:", response);
 
     const nextDmmState = parseDmmState(response);
 
     setDmmState(nextDmmState);
 
-    console.log("[DMM] State synchronized:", nextDmmState);
+    //console.log("[DMM] State synchronized:", nextDmmState);
 
     return nextDmmState;
   }, []);
@@ -130,7 +130,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
     const response = await bleDiagnostic.request(`DMM:SET_MODE ${mode}`);
 
-    console.log("[DMM] Mode response:", response);
+    //console.log("[DMM] Mode response:", response);
 
     const nextDmmState = parseDmmState(response);
 
@@ -142,17 +142,17 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
      */
     setDmmReading(null);
 
-    console.log("[DMM] Mode updated:", nextDmmState);
+    //console.log("[DMM] Mode updated:", nextDmmState);
 
     return nextDmmState;
   }, []);
 
   const requestDmmReading = useCallback(async (): Promise<DmmReading> => {
-    console.log("[DMM] Requesting reading...");
+    //console.log("[DMM] Requesting reading...");
 
     const response = await bleDiagnostic.request("DMM:READ");
 
-    console.log("[DMM] Reading response:", response);
+    //console.log("[DMM] Reading response:", response);
 
     const { reading, inferredState } = parseDmmReading(response);
 
@@ -162,7 +162,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
     setDmmReading(reading);
 
-    console.log("[DMM] Reading updated:", reading);
+    //console.log("[DMM] Reading updated:", reading);
 
     return reading;
   }, []);

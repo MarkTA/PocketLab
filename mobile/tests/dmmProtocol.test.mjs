@@ -40,6 +40,33 @@ test("parses state responses with and without RREF", () => {
   });
 });
 
+test("parses continuity state and reading without changing mode to resistance", () => {
+  assert.deepEqual(parseDmmState("DMM:STATE MODE=CONTINUITY;RANGE=10K;RREF=10000"), {
+    mode: "CONTINUITY", range: "10K", rrefOhms: 10000,
+  });
+  assert.deepEqual(
+    parseDmmReading("DMM:VALUE 2.500;UNIT=OHM;MODE=CONTINUITY;CONT=1;RANGE=10K;RREF=10000"),
+    {
+      reading: { value: 2.5, unit: "OHM", overload: false, continuity: true },
+      inferredState: { mode: "CONTINUITY", range: "10K", rrefOhms: 10000 },
+    }
+  );
+  assert.deepEqual(
+    parseDmmReading("DMM:VALUE OL;UNIT=OHM;MODE=CONTINUITY;CONT=0;RANGE=10K;RREF=10000"),
+    {
+      reading: { value: null, unit: "OHM", overload: true, continuity: false },
+      inferredState: { mode: "CONTINUITY", range: "10K", rrefOhms: 10000 },
+    }
+  );
+});
+
+test("rejects malformed continuity metadata", () => {
+  assert.throws(
+    () => parseDmmReading("DMM:VALUE 5;UNIT=OHM;MODE=CONTINUITY;CONT=maybe"),
+    /Invalid continuity status/
+  );
+});
+
 test("rejects malformed DMM readings", () => {
   assert.throws(() => parseDmmReading("WRONG"), /Unexpected DMM reading response/);
   assert.throws(() => parseDmmReading("DMM:VALUE "), /Missing DMM value/);
