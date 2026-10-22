@@ -11,6 +11,7 @@ export type DmmSample = {
   value: number | null;
   unit: DmmReading["unit"];
   overload: boolean;
+  continuity?: boolean;
 };
 
 type Options = {
@@ -23,8 +24,8 @@ type Options = {
 };
 
 const DEFAULT_INTERVAL_MS = 200; // Aim for 5 readings per second.
-const HISTORY_MS = 60_000;
-const MAX_SAMPLES = 600;
+const HISTORY_MS = 10 * 60_000; // Keep 10 minutes of recent samples in RAM.
+const MAX_SAMPLES = 3_200; // Approx. 10 minutes at 5 Hz, with headroom.
 const RETRY_DELAY_MS = 1_000;
 
 /**
@@ -68,7 +69,7 @@ export function useContinuousDmm({
   const recordReading = useCallback((reading: DmmReading, readMode: DmmMode) => {
     // Never plot/display a voltage reading under resistance, or vice versa.
     if ((readMode === "VOLTAGE" && reading.unit !== "V") ||
-        (readMode === "RESISTANCE" && reading.unit !== "OHM")) {
+        (readMode !== "VOLTAGE" && reading.unit !== "OHM")) {
       throw new Error(`Unexpected ${reading.unit} reading in ${readMode} mode.`);
     }
 
@@ -79,6 +80,7 @@ export function useContinuousDmm({
       value: reading.value,
       unit: reading.unit,
       overload: reading.overload,
+      continuity: reading.continuity,
     };
 
     setStoredSamples((previous) => {
@@ -239,6 +241,28 @@ export function useContinuousDmm({
     );
   }, [enabled, mode, paused, takeReading]);
 
+  // A manual request is handled by an effect, after the polling effect has
+  // cleaned up. That avoids cancelling the first manual sample when leaving Live.
+  const [manualRequest, setManualRequest] = useState(0);
+  const measureOnce = useCallback((): void => {
+    if (!enabled || switchingRef.current || mode === null) return;
+    setPaused(true);
+    setManualRequest((count) => count + 1);
+  }, [enabled, mode]);
+
+  useEffect(() => {
+    if (manualRequest === 0 || !enabled || !paused || switchingMode) return;
+    let cancelled = false;
+    const pending = inFlightRef.current;
+    void (async () => {
+      if (pending) {
+        try { await pending; } catch { /* A failed Live reading is harmless. */ }
+      }
+      if (!cancelled) await readOnce();
+    })();
+    return () => { cancelled = true; };
+  }, [manualRequest, enabled, paused, switchingMode, readOnce]);
+
   const samples = useMemo(
     () => (enabled && mode ? storedSamples.filter((sample) => sample.mode === mode) : []),
     [enabled, mode, storedSamples]
@@ -246,7 +270,12 @@ export function useContinuousDmm({
 
   const latest = samples.length > 0 ? samples[samples.length - 1] : null;
   const reading: DmmReading | null = latest
-    ? { value: latest.value, unit: latest.unit, overload: latest.overload }
+    ? {
+        value: latest.value,
+        unit: latest.unit,
+        overload: latest.overload,
+        continuity: latest.continuity,
+      }
     : null;
 
   return {
@@ -260,6 +289,7 @@ export function useContinuousDmm({
     polling: enabled && !paused && !switchingMode,
     changeMode,
     readOnce,
+    measureOnce,
     stopForDeviceSheet,
   };
 }

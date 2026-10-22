@@ -11,7 +11,7 @@ export type FunctionGeneratorSettings = {
   waveform: Waveform;
 };
 
-export type DmmMode = "RESISTANCE" | "VOLTAGE";
+export type DmmMode = "RESISTANCE" | "VOLTAGE" | "CONTINUITY";
 
 export type DmmState = {
   mode: DmmMode;
@@ -23,6 +23,8 @@ export type DmmReading = {
   value: number | null;
   unit: "OHM" | "V";
   overload: boolean;
+  /** True only when the firmware continuity buzzer threshold is active. */
+  continuity?: boolean;
 };
 
 export type DeviceContextValue = {
