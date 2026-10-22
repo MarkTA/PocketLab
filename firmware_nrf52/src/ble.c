@@ -42,6 +42,9 @@ K_SEM_DEFINE(continuity_wake, 0, 1);
 #define CONTINUITY_ON_OHMS 30.0
 #define CONTINUITY_OFF_OHMS 40.0
 #define CONTINUITY_POLL_GAP_MS 1 /* Additional pause AFTER each fast ADC conversion. */
+#define CONTINUITY_ON_CONFIRM_SAMPLES   2
+#define CONTINUITY_OFF_CONFIRM_SAMPLES  2
+#define CONTINUITY_MIN_BEEP_MS         25
 
 /* Cached status is only accessed while dmm_mutex is held. */
 static resistance_result_t continuity_result = RESISTANCE_RESULT_ERROR;
@@ -70,7 +73,7 @@ static void buzzer_stop(void)
         buzzer_running = false;
     }
     nrf_gpio_cfg_output(PIN_LED_R);
-    nrf_gpio_pin_set(PIN_LED_R); /* PNP off */
+    nrf_gpio_pin_clear(PIN_LED_R); /* MOSFET off */
     atomic_clear(&buzzer_tone_active);
 }
 
@@ -122,43 +125,173 @@ static void continuity_thread(void *a, void *b, void *c)
     ARG_UNUSED(b);
     ARG_UNUSED(c);
 
+    uint8_t on_confirm_count = 0;
+    uint8_t off_confirm_count = 0;
+    int64_t buzzer_started_ms = 0;
+
     while (true) {
         k_sem_take(&continuity_wake, K_FOREVER);
+
+        /*
+         * Start each continuity session with clean debounce state.
+         */
+        on_confirm_count = 0;
+        off_confirm_count = 0;
+        buzzer_started_ms = 0;
 
         while (atomic_get(&continuity_active)) {
             k_mutex_lock(&dmm_mutex, K_FOREVER);
 
-            if (atomic_get(&continuity_active) && atomic_get(&connected_state) &&
+            if (atomic_get(&continuity_active) &&
+                atomic_get(&connected_state) &&
                 atomic_get(&current_dmm_mode) == DMM_MODE_CONTINUITY) {
-                double ohms = 0.0;
-                resistance_result_t result = resistance_read_continuity(&ohms);
 
-                /* A disconnect can happen during the ADC conversion. Never
-                 * re-enable the tone after the urgent relay cutoff. */
-                if (atomic_get(&continuity_active) && atomic_get(&connected_state) &&
+                double ohms = 0.0;
+                resistance_result_t result =
+                    resistance_read_continuity(&ohms);
+
+                /*
+                 * A disconnect can happen during the ADC conversion.
+                 * Never re-enable the tone after the urgent relay cutoff.
+                 */
+                if (atomic_get(&continuity_active) &&
+                    atomic_get(&connected_state) &&
                     atomic_get(&current_dmm_mode) == DMM_MODE_CONTINUITY) {
+
                     continuity_result = result;
-                    continuity_has_sample = (result != RESISTANCE_RESULT_ERROR);
+                    continuity_has_sample =
+                        (result != RESISTANCE_RESULT_ERROR);
 
                     if (result == RESISTANCE_RESULT_OK) {
                         continuity_ohms = ohms;
-                        if (atomic_get(&buzzer_tone_active)) {
-                            if (ohms >= CONTINUITY_OFF_OHMS) {
-                                buzzer_stop();
+
+                        /*
+                         * -------------------------
+                         * Buzzer currently OFF
+                         * -------------------------
+                         */
+                        if (!atomic_get(&buzzer_tone_active)) {
+
+                            off_confirm_count = 0;
+
+                            if (ohms <= CONTINUITY_ON_OHMS) {
+                                if (on_confirm_count <
+                                    CONTINUITY_ON_CONFIRM_SAMPLES) {
+                                    on_confirm_count++;
+                                }
+
+                                if (on_confirm_count >=
+                                    CONTINUITY_ON_CONFIRM_SAMPLES) {
+
+                                    buzzer_start();
+                                    buzzer_started_ms =
+                                        k_uptime_get();
+
+                                    on_confirm_count = 0;
+                                }
+                            } else {
+                                /*
+                                 * Continuity disappeared before
+                                 * confirmation completed.
+                                 */
+                                on_confirm_count = 0;
                             }
-                        } else if (ohms <= CONTINUITY_ON_OHMS) {
-                            buzzer_start();
+                        }
+
+                        /*
+                         * -------------------------
+                         * Buzzer currently ON
+                         * -------------------------
+                         */
+                        else {
+
+                            on_confirm_count = 0;
+
+                            /*
+                             * Don't allow the tone to stop until
+                             * the minimum beep duration has elapsed.
+                             */
+                            const int64_t tone_age_ms =
+                                k_uptime_get() -
+                                buzzer_started_ms;
+
+                            if (tone_age_ms >=
+                                CONTINUITY_MIN_BEEP_MS) {
+
+                                if (ohms >=
+                                    CONTINUITY_OFF_OHMS) {
+
+                                    if (off_confirm_count <
+                                        CONTINUITY_OFF_CONFIRM_SAMPLES) {
+                                        off_confirm_count++;
+                                    }
+
+                                    if (off_confirm_count >=
+                                        CONTINUITY_OFF_CONFIRM_SAMPLES) {
+
+                                        buzzer_stop();
+                                        off_confirm_count = 0;
+                                    }
+                                } else {
+                                    /*
+                                     * Reading returned below the
+                                     * OFF threshold, so cancel the
+                                     * pending turn-off.
+                                     */
+                                    off_confirm_count = 0;
+                                }
+                            }
                         }
                     } else {
-                        /* OL or ADC failure must never leave the tone on. */
-                        buzzer_stop();
+                        /*
+                         * OL or ADC error.
+                         *
+                         * Treat these like a possible loss of
+                         * continuity, but still honor the minimum
+                         * beep duration and confirmation count.
+                         */
+                        on_confirm_count = 0;
+
+                        if (atomic_get(&buzzer_tone_active)) {
+
+                            const int64_t tone_age_ms =
+                                k_uptime_get() -
+                                buzzer_started_ms;
+
+                            if (tone_age_ms >=
+                                CONTINUITY_MIN_BEEP_MS) {
+
+                                if (off_confirm_count <
+                                    CONTINUITY_OFF_CONFIRM_SAMPLES) {
+                                    off_confirm_count++;
+                                }
+
+                                if (off_confirm_count >=
+                                    CONTINUITY_OFF_CONFIRM_SAMPLES) {
+
+                                    buzzer_stop();
+                                    off_confirm_count = 0;
+                                }
+                            }
+                        } else {
+                            off_confirm_count = 0;
+                        }
                     }
                 }
             }
 
             k_mutex_unlock(&dmm_mutex);
+
             k_msleep(CONTINUITY_POLL_GAP_MS);
         }
+
+        /*
+         * Ensure no stale debounce state survives leaving
+         * continuity mode.
+         */
+        on_confirm_count = 0;
+        off_confirm_count = 0;
+        buzzer_started_ms = 0;
     }
 }
 

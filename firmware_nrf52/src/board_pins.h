@@ -30,8 +30,8 @@
 
 /* RGB LED */
 #define PIN_LED_R  NRF_GPIO_PIN_MAP(1, 5)
-#define PIN_LED_G  NRF_GPIO_PIN_MAP(1, 6)
-#define PIN_LED_B  NRF_GPIO_PIN_MAP(1, 1)
+#define PIN_LED_B  NRF_GPIO_PIN_MAP(1, 6)
+#define PIN_LED_G  NRF_GPIO_PIN_MAP(1, 1)
 
 /* Charger status */
 #define PIN_BQ_CHG          NRF_GPIO_PIN_MAP(0, 25)
