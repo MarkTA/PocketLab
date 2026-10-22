@@ -1,5 +1,5 @@
 /* src/features/dmm/components/InteractiveVoltageGraph.tsx */
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useLayoutEffect } from "react";
 import { PanResponder, StyleSheet, TextInput, View } from "react-native";
 import { Button, Text } from "react-native-paper";
 import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
@@ -64,7 +64,7 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
   const [scaleDraft, setScaleDraft] = useState("");
   const gesture = useRef<Gesture | null>(null);
   const selectedRef = useRef<Point | null>(null);
-  selectedRef.current = selected;
+  
   const axisGesture = useRef<{
     axis: "x" | "y";
     distance: number;
@@ -75,7 +75,7 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
   } | null>(null);
 
   const points = useMemo(() => samples.filter(validVoltage), [samples]);
-  const latest = points.length ? points[points.length - 1].timestamp : Date.now();
+  const latest = points.length ? points[points.length - 1].timestamp : 0;
   const earliest = points.length ? points[0].timestamp : latest;
   const graphWidth = Math.max(1, size.width - LEFT - RIGHT);
   const graphHeight = Math.max(1, size.height - TOP - BOTTOM);
@@ -129,7 +129,32 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
   const path = plotted.map((p, i) => `${i === 0 || p.timestamp - plotted[i - 1].timestamp > 2000 ? "M" : "L"}${toX(p.timestamp).toFixed(2)},${toY(p.value).toFixed(2)}`).join(" ");
 
   const dataRef = useRef({ points, viewport, graphWidth, graphHeight, size, onInspect, latest, earliest, following: manual === null });
-  dataRef.current = { points, viewport, graphWidth, graphHeight, size, onInspect, latest, earliest, following: manual === null };
+  
+  useLayoutEffect(() => {
+    selectedRef.current = selected;
+    dataRef.current = {
+      points,
+      viewport,
+      graphWidth,
+      graphHeight,
+      size,
+      onInspect,
+      latest,
+      earliest,
+      following: manual === null,
+    };
+  }, [
+    selected,
+    points,
+    viewport,
+    graphWidth,
+    graphHeight,
+    size,
+    onInspect,
+    latest,
+    earliest,
+    manual,
+  ]);
 
   // Panning/inspection explicitly enters history mode. Scaling does not.
   function commit(v: Viewport) {
@@ -191,27 +216,27 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
   function inspect(x: number) {
     const d = dataRef.current;
     const verbose = inspectLogCount.current++ < 12;
-    if (verbose) console.log("[GRAPH INSPECT START]", {
-      x, size: d.size, graphWidth: d.graphWidth,
-      viewport: d.viewport, pointCount: d.points.length,
-    });
+    // if (verbose) console.log("[GRAPH INSPECT START]", {
+    //   x, size: d.size, graphWidth: d.graphWidth,
+    //   viewport: d.viewport, pointCount: d.points.length,
+    // });
     if (d.size.width <= LEFT + RIGHT || d.graphWidth <= 1) {
-      console.warn("[GRAPH INSPECT EXIT] invalid graph dimensions", d.size);
+      // console.warn("[GRAPH INSPECT EXIT] invalid graph dimensions", d.size);
       return;
     }
     const clampedX = clamp(x, LEFT, d.size.width - RIGHT);
     const time = fromX(clampedX, d.viewport, d.graphWidth);
-    if (verbose) console.log("[GRAPH CURSOR TIME]", {
-      touchX: x, clampedX, calculatedTime: time,
-      viewportStart: d.viewport.start, viewportEnd: d.viewport.end,
-      firstSample: d.points[0]?.timestamp,
-      lastSample: d.points[d.points.length - 1]?.timestamp,
-    });
+    // if (verbose) console.log("[GRAPH CURSOR TIME]", {
+    //   touchX: x, clampedX, calculatedTime: time,
+    //   viewportStart: d.viewport.start, viewportEnd: d.viewport.end,
+    //   firstSample: d.points[0]?.timestamp,
+    //   lastSample: d.points[d.points.length - 1]?.timestamp,
+    // });
     const visible = d.points.filter(p => p.timestamp >= d.viewport.start && p.timestamp <= d.viewport.end);
     if (visible.length === 0) {
-      console.warn("[GRAPH INSPECT EXIT] no samples inside viewport", {
-        pointCount: d.points.length, viewport: d.viewport,
-      });
+      // console.warn("[GRAPH INSPECT EXIT] no samples inside viewport", {
+      //   pointCount: d.points.length, viewport: d.viewport,
+      // });
       return;
     }
     let lo = 0, hi = visible.length;
@@ -230,13 +255,13 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
       const nearest = !left ? right : !right ? left :
         time - left.timestamp <= right.timestamp - time ? left : right;
       if (!nearest) {
-        console.warn("[GRAPH INSPECT EXIT] no nearest sample", { time, lo });
+        // console.warn("[GRAPH INSPECT EXIT] no nearest sample", { time, lo });
         return;
       }
       value = nearest.value;
     }
     const point = { timestamp: time, value };
-    if (verbose) console.log("[GRAPH CURSOR SELECTED]", { point, left, right, visibleCount: visible.length });
+    // if (verbose) console.log("[GRAPH CURSOR SELECTED]", { point, left, right, visibleCount: visible.length });
     setSelected(point);
     setManual(previous => previous ?? { ...d.viewport });
     d.onInspect(point);
@@ -342,13 +367,19 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
     });
   }
 
-  const xAxisResponder = useRef(axisResponder("x")).current;
-  const yAxisResponder = useRef(axisResponder("y")).current;
+  // PanResponder callbacks access refs only during gesture events,
+  // never during React rendering.
+  // eslint-disable-next-line react-hooks/refs
+  const [xAxisResponder] = useState(() => axisResponder("x"));
+
+  // eslint-disable-next-line react-hooks/refs
+  const [yAxisResponder] = useState(() => axisResponder("y"));
 
   // The touch layer uses local coordinates: X/Y originate at the plot interior,
   // not at the SVG origin. Taps always snap to the nearest visible sample,
   // while an initial drag away from the trace pans the viewport.
-  const responder = useRef(PanResponder.create({
+// eslint-disable-next-line react-hooks/refs
+  const [responder] = useState(() => PanResponder.create({
     onStartShouldSetPanResponder: e => e.nativeEvent.touches.length === 1,
     onMoveShouldSetPanResponder: e => e.nativeEvent.touches.length === 1,
     onPanResponderTerminationRequest: () => false,
@@ -390,7 +421,7 @@ export function InteractiveVoltageGraph({ samples, onInspect }: Props) {
     },
     onPanResponderTerminate: () => { gesture.current = null; },
     onShouldBlockNativeResponder: () => true,
-  })).current;
+  }));
 
   function backToLive() {
     // Return to the live edge without throwing away the chosen zoom.

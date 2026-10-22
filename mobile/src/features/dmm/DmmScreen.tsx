@@ -11,6 +11,9 @@ import { usePocketLabDevice } from "../device/DeviceProvider";
 import { DeviceStatusCard } from "../device/DeviceStatusCard";
 import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
 import { InteractiveVoltageGraph } from "./components/InteractiveVoltageGraph";
+import { DmmModeFooter, type DmmFooterMode } from "./components/DmmModeFooter";
+import { DcVoltageSettings, AVERAGING_WINDOW_MS, type AveragingPreset, type SensitivityPreset } from "./components/DcVoltageSettings";
+import { averageRecentVoltage, formatDcVoltage } from "./graph/dcVoltageDisplay";
 import { useContinuousDmm } from "./hooks/useContinuousDmm";
 
 export function DmmScreen() {
@@ -19,6 +22,9 @@ export function DmmScreen() {
   const [saveNoticeVisible, setSaveNoticeVisible] = useState(false);
   const [inspectedVoltage, setInspectedVoltage] = useState<number | null>(null);
   const [recordNoticeVisible, setRecordNoticeVisible] = useState(false);
+  const [voltageSettingsVisible, setVoltageSettingsVisible] = useState(false);
+  const [averaging, setAveraging] = useState<AveragingPreset>("NORMAL");
+  const [sensitivity, setSensitivity] = useState<SensitivityPreset>("AUTO");
   const isFocused = useIsFocused();
   const [appActive, setAppActive] = useState(AppState.currentState === "active" || AppState.currentState == null);
 
@@ -37,30 +43,30 @@ export function DmmScreen() {
       requestDmmReading, setDmmMode,
     });
 
-  const averagedVoltage = useMemo(() => {
-    if (mode !== "VOLTAGE" || samples.length === 0) return null;
-    const latest = samples[samples.length - 1].timestamp;
-    const valid = samples.filter(s => s.mode === "VOLTAGE" && s.unit === "V" &&
-      !s.overload && s.value !== null && Number.isFinite(s.value) && s.timestamp >= latest - 500);
-    return valid.length ? valid.reduce((sum, s) => sum + (s.value ?? 0), 0) / valid.length : null;
-  }, [mode, samples]);
-
+  const averagedVoltage = useMemo(() =>
+    mode === "VOLTAGE" ? averageRecentVoltage(samples, AVERAGING_WINDOW_MS[averaging]) : null,
+    [mode, samples, averaging]
+  );
   const formattedReading = useMemo(() => {
-    if (mode === "VOLTAGE" && inspectedVoltage !== null) return formatDmmReading(inspectedVoltage, "V");
-    if (mode === "VOLTAGE" && averagedVoltage !== null) return formatDmmReading(averagedVoltage, "V");
+    if (mode === "VOLTAGE" && inspectedVoltage !== null) return formatDcVoltage(inspectedVoltage, sensitivity);
+    if (mode === "VOLTAGE" && averagedVoltage !== null) return formatDcVoltage(averagedVoltage, sensitivity);
     if (!dmmReading) return { value: "—", unit: displayUnitForMode(mode) };
     if (dmmReading.overload) return { value: "OL", unit: "Ω" };
     if (dmmReading.value === null) return { value: "—", unit: displayUnitForMode(mode) };
     return formatDmmReading(dmmReading.value, dmmReading.unit);
-  }, [mode, inspectedVoltage, averagedVoltage, dmmReading]);
+  }, [mode, inspectedVoltage, averagedVoltage, dmmReading, sensitivity]);
 
-  const selectMode = (nextMode: "VOLTAGE" | "RESISTANCE" | "CONTINUITY") => {
+  const selectMode = (nextMode: DmmFooterMode) => {
     if (nextMode !== mode) { setInspectedVoltage(null); void changeMode(nextMode); }
   };
   const showDeviceSheet = async () => { await stopForDeviceSheet(); setDeviceSheetVisible(true); };
 
-  return <View style={styles.screenRoot}>
-    <Screen header={<ScreenHeader title="PocketLab" subtitle="Digital Multimeter"
+  return <>
+    <Screen
+      contentContainerStyle={styles.screenContent}
+      footerContainerStyle={styles.screenFooter}
+      footer={<DmmModeFooter mode={mode} disabled={!connectedAndReady || switchingMode} onModeChange={selectMode} />}
+      header={<ScreenHeader title="PocketLab" subtitle="Digital Multimeter"
       left={<DrawerMenuButton />} right={<DeviceStatusCard connected={state.connected}
       reconnecting={reconnecting} deviceName={state.deviceName}
       onPress={() => { void showDeviceSheet(); }} />} />}>
@@ -77,6 +83,9 @@ export function DmmScreen() {
                 disabled={!connectedAndReady || switchingMode || formattedReading.value === "—" || formattedReading.value === "OL"}
                 onPress={() => setSaveNoticeVisible(true)} />}
           </View>
+          {mode === "VOLTAGE" && <Button compact icon="tune-variant" mode="text" onPress={() => setVoltageSettingsVisible(true)}>
+            {averaging === "FAST" ? "Fast" : averaging === "NORMAL" ? "Normal" : averaging === "STABLE" ? "Stable" : "Precision"} · {sensitivity === "AUTO" ? "Auto" : sensitivity === "HIGH" ? "High" : "Low"}
+          </Button>}
           {mode === "CONTINUITY" && <Text style={styles.continuity}>
             {dmmReading?.continuity === true ? "● Connected" : dmmReading?.continuity === false ? "○ Open" : "Checking…"}
           </Text>}
@@ -93,23 +102,17 @@ export function DmmScreen() {
 
       </View>
     </Screen>
-    <View style={styles.footer} accessibilityRole="tablist">
-          {([ ["VOLTAGE", "Voltage", "flash-outline"], ["RESISTANCE", "Ohms", "omega"], ["CONTINUITY", "Continuity", "volume-high"] ] as const)
-            .map(([nextMode, label, icon]) => <Button key={nextMode} mode="text" compact
-              icon={icon} accessibilityRole="tab" accessibilityState={{ selected: mode === nextMode }}
-              disabled={!connectedAndReady || switchingMode} style={[styles.tab, mode === nextMode && styles.tabSelected]}
-              contentStyle={styles.tabContent} labelStyle={styles.tabLabel}
-              textColor={c.surface}
-              onPress={() => selectMode(nextMode)}>{label}</Button>)}
-    </View>
     <Snackbar visible={saveNoticeVisible} onDismiss={() => setSaveNoticeVisible(false)} duration={2500}>
       Save measurement — coming soon
     </Snackbar>
     <Snackbar visible={recordNoticeVisible} onDismiss={() => setRecordNoticeVisible(false)} duration={2500}>
       CSV recording — coming soon
     </Snackbar>
+    <DcVoltageSettings visible={voltageSettingsVisible} onDismiss={() => setVoltageSettingsVisible(false)}
+      averaging={averaging} onAveragingChange={setAveraging}
+      sensitivity={sensitivity} onSensitivityChange={setSensitivity} />
     <ScanDeviceSheet visible={deviceSheetVisible} onDismiss={() => setDeviceSheetVisible(false)} />
-  </View>;
+  </>;
 }
 
 function displayUnitForMode(mode: "RESISTANCE" | "VOLTAGE" | "CONTINUITY" | undefined): string {
@@ -183,7 +186,8 @@ function formatDmmReading(
 }
 
 const styles = StyleSheet.create({
-  screenRoot: { flex: 1, minHeight: 0 },
+  screenContent: { paddingBottom: 0, gap: 0 },
+  screenFooter: { paddingHorizontal: 0, paddingVertical: 0, backgroundColor: c.darkTeal },
   content: { flex: 1, minHeight: 0, paddingTop: 4, paddingBottom: 4, gap: 8 },
   // The reading and graph share the available height; no screen-level scrolling.
   readout: { flex: 0.65, minHeight: 80, justifyContent: "center", alignItems: "center", position: "relative" },
@@ -194,10 +198,5 @@ const styles = StyleSheet.create({
   continuity: { color: c.mutedText, marginTop: 8 },
   graphArea: { flex: 1.6, minHeight: 0, width: "100%" },
   recordRow: { flexDirection: "row", justifyContent: "flex-end" },
-  footer: { flexDirection: "row", flexShrink: 0, borderTopWidth: 1, borderTopColor: c.darkTeal, backgroundColor: c.darkTeal },
-  tab: { flex: 1, borderRadius: 0 },
-  tabSelected: { borderTopWidth: 3, borderTopColor: c.green },
-  tabContent: { minHeight: 56, paddingHorizontal: 0, flexDirection: "column" },
-  tabLabel: { fontSize: 11, marginHorizontal: 0 },
   error: { color: c.danger, fontSize: 12 },
 });

@@ -83,6 +83,17 @@ export function useContinuousDmm({
       continuity: reading.continuity,
     };
 
+    if (readMode === "VOLTAGE") {
+      console.log("[DMM VOLTAGE]", {
+        timestamp: sample.timestamp,
+        voltage: sample.value,
+        microvolts: sample.value !== null
+          ? sample.value * 1_000_000
+          : null,
+        overload: sample.overload,
+      });
+    }
+
     setStoredSamples((previous) => {
       const recent = previous.filter(
         (item) => item.mode === readMode && item.timestamp >= now - HISTORY_MS
@@ -114,7 +125,7 @@ export function useContinuousDmm({
         if (isCurrent()) {
           const message =
             readError instanceof Error ? readError.message : "Unable to read measurement.";
-          console.warn("[DMM] Continuous reading failed:", readError);
+          //console.warn("[DMM] Continuous reading failed:", readError);
           setError(message);
         }
         return false;
@@ -221,7 +232,7 @@ export function useContinuousDmm({
         setStoredSamples([]);
       } catch (modeError) {
         setError(modeError instanceof Error ? modeError.message : "Unable to switch mode.");
-        console.error("[DMM] Mode switch failed:", modeError);
+        //console.error("[DMM] Mode switch failed:", modeError);
       } finally {
         switchingRef.current = false;
         setSwitchingMode(false);
