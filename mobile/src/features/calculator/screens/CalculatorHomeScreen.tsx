@@ -4,7 +4,6 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { Icon, Searchbar, Text, TouchableRipple } from "react-native-paper";
 
 import { Screen } from "@/components/layout/Screen";
-import { ScreenHeader } from "@/components/layout/ScreenHeader";
 import { pocketLabColors } from "@/themes/theme";
 
 import { useCalculatorCatalog } from "../CalculatorCatalogProvider";
@@ -42,7 +41,6 @@ export function CalculatorHomeScreen() {
 
   return (
     <Screen
-      header={<ScreenHeader title="PocketLab" subtitle="EE Calculator" />}
       contentContainerStyle={styles.screenContent}
     >
       <ScrollView

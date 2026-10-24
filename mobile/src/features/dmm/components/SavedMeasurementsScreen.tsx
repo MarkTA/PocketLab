@@ -62,8 +62,34 @@ export function SavedMeasurementsScreen({ visible, onClose, onCountChange }: Pro
   }, [onCountChange]);
 
   useEffect(() => {
-    if (visible) void refresh();
-  }, [visible, refresh]);
+  if (!visible) return;
+
+  let active = true;
+
+  async function loadMeasurements() {
+    try {
+      const saved = await listSavedMeasurements();
+
+      if (!active) return;
+
+      setItems(saved);
+      onCountChange?.(saved.length);
+      setError(null);
+      setLoading(false);
+    } catch {
+      if (active) {
+        setError("Unable to load saved measurements.");
+        setLoading(false);
+      }
+    }
+  }
+
+  void loadMeasurements();
+
+  return () => {
+    active = false;
+  };
+}, [visible, onCountChange]);
 
   const remove = async (id: string) => {
     if (deletingId !== null) return;

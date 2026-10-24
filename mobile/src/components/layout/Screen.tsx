@@ -15,7 +15,7 @@ type ScreenProps = {
 
 export function Screen({ header, children, footer, contentContainerStyle, footerContainerStyle }: ScreenProps) {
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
       {header ? <View style={styles.header}>{header}</View> : null}
       <View style={styles.container}>
         <View style={[styles.content, contentContainerStyle]}>{children}</View>

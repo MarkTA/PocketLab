@@ -1,4 +1,4 @@
-import { type Href, Stack, useRouter } from "expo-router";
+import { type Href, useRouter } from "expo-router";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Icon, Text } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,7 +21,6 @@ export function CategoryScreen({ slug }: { slug: string | undefined }) {
 
   return (
     <>
-      <Stack.Screen options={{ title: category?.title ?? "Calculator topic" }} />
       <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
         <ScrollView
           contentContainerStyle={styles.content}

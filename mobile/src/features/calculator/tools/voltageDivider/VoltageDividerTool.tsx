@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { Keyboard, Modal, ScrollView, StyleSheet, View } from "react-native";
-import { Button, IconButton, SegmentedButtons, Text, TextInput } from "react-native-paper";
+import { Button, SegmentedButtons, Text, TextInput } from "react-native-paper";
 import { pocketLabColors as c } from "@/themes/theme";
-import { CalculatorPreferencesProvider, useCalculatorPreferences } from "../../preferences/calculatorPreferences";
+import { useCalculatorPreferences } from "../../preferences/calculatorPreferences";
 import { formatQuantity } from "../../preferences/engineeringFormat";
-import { CalculatorSettingsModal } from "../../components/CalculatorSettingsModal";
 import { InteractiveDividerEquation } from "./InteractiveDividerEquation";
 import { listSavedMeasurements, type SavedMeasurement } from "../../../dmm/storage/savedMeasurements";
 import { VoltageDividerSchematic } from "./VoltageDividerSchematic";
@@ -35,12 +34,11 @@ function formatted(id: VariableId, value: number, preferences: ReturnType<typeof
 
 /** The ordered ids are the independent inputs. One remaining id is calculated. */
 export function VoltageDividerTool() {
-  return <CalculatorPreferencesProvider><VoltageDividerToolContent /></CalculatorPreferencesProvider>;
+  return <VoltageDividerToolContent />;
 }
 
 function VoltageDividerToolContent() {
   const { preferences } = useCalculatorPreferences();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [mode, setMode] = useState<DividerMode>("unloaded");
   const [entries, setEntries] = useState<Entries>({});
   const [order, setOrder] = useState<VariableId[]>([]);
@@ -155,8 +153,6 @@ function VoltageDividerToolContent() {
   const units = editing && info[editing].kind === "voltage" ? voltageUnits : resistanceUnits;
 
   return <View style={styles.card}>
-    <View style={styles.settingsRow}><Text variant="titleSmall">Voltage divider</Text><IconButton icon="cog-outline" accessibilityLabel="Calculator settings" onPress={() => setSettingsOpen(true)} /></View>
-    <CalculatorSettingsModal visible={settingsOpen} onDismiss={() => setSettingsOpen(false)} />
     <SegmentedButtons value={mode} onValueChange={v => changeMode(v as DividerMode)} buttons={[
       { value: "unloaded", label: "Unloaded" }, { value: "loaded", label: "Loaded" },
     ]} />

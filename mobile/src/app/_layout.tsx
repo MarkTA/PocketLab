@@ -3,6 +3,8 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { CalculatorPreferencesProvider } from "@/features/calculator/preferences/calculatorPreferences";
+import { DmmPreferencesProvider } from "@/features/dmm/preferences/DmmPreferencesProvider";
 import { DeviceProvider } from "@/features/device/DeviceProvider";
 import { paperTheme } from "@/themes/theme";
 
@@ -12,9 +14,13 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <PaperProvider theme={paperTheme}>
           <DeviceProvider>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-            </Stack>
+            <CalculatorPreferencesProvider>
+              <DmmPreferencesProvider>
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="(drawer)" />
+                </Stack>
+              </DmmPreferencesProvider>
+            </CalculatorPreferencesProvider>
           </DeviceProvider>
         </PaperProvider>
       </SafeAreaProvider>

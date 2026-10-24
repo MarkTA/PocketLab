@@ -4,33 +4,31 @@ import { useEffect, useMemo, useState } from "react";
 import { AppState, StyleSheet, View } from "react-native";
 import { Button, IconButton, Snackbar, Text } from "react-native-paper";
 import { Screen } from "../../components/layout/Screen";
-import { ScreenHeader } from "../../components/layout/ScreenHeader";
-import { DrawerMenuButton } from "../../components/navigation/DrawerMenuButton";
 import { pocketLabColors as c } from "../../themes/theme";
 import { usePocketLabDevice } from "../device/DeviceProvider";
-import { DeviceStatusCard } from "../device/DeviceStatusCard";
-import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
+import { useAppShell } from "../appShell/AppShellContext";
 import { InteractiveVoltageGraph } from "./components/InteractiveVoltageGraph";
 import { DmmModeFooter, type DmmFooterMode } from "./components/DmmModeFooter";
-import { SavedMeasurementsScreen } from "./components/SavedMeasurementsScreen";
 import { DcVoltageSettings, AVERAGING_WINDOW_MS, type AveragingPreset, type SensitivityPreset } from "./components/DcVoltageSettings";
 import { averageRecentVoltage, formatDcVoltage } from "./graph/dcVoltageDisplay";
 import { useContinuousDmm } from "./hooks/useContinuousDmm";
-import { listSavedMeasurements, saveMeasurement } from "./storage/savedMeasurements";
+import { useDmmPreferences } from "./preferences/DmmPreferencesProvider";
+import { saveMeasurement } from "./storage/savedMeasurements";
+import { useDisplayRefresh } from "@/features/dmm/hooks/useDisplayRefresh";
 
 export function DmmScreen() {
-  const { state, reconnecting, capabilities, dmmState, requestDmmReading, setDmmMode } = usePocketLabDevice();
-  const [deviceSheetVisible, setDeviceSheetVisible] = useState(false);
+  const { state, capabilities, dmmState, requestDmmReading, setDmmMode } = usePocketLabDevice();
+  const { deviceSheetVisible, registerBeforeDeviceSheetOpen, refreshSavedCount } = useAppShell();
   const [saveNoticeVisible, setSaveNoticeVisible] = useState(false);
   const [saveNotice, setSaveNotice] = useState("");
   const [saving, setSaving] = useState(false);
-  const [savedMeasurementsVisible, setSavedMeasurementsVisible] = useState(false);
-  const [savedCount, setSavedCount] = useState(0);
   const [inspectedPoint, setInspectedPoint] = useState<{ timestamp: number; value: number } | null>(null);
   const [recordNoticeVisible, setRecordNoticeVisible] = useState(false);
-  const [voltageSettingsVisible, setVoltageSettingsVisible] = useState(false);
-  const [averaging, setAveraging] = useState<AveragingPreset>("NORMAL");
-  const [sensitivity, setSensitivity] = useState<SensitivityPreset>("AUTO");
+  // const [voltageSettingsVisible, setVoltageSettingsVisible] = useState(false);
+  const {
+    preferences: { averaging, sensitivity, displayRefreshMs },
+    setPreferences: setDmmPreferences,
+  } = useDmmPreferences();
   const isFocused = useIsFocused();
   const [appActive, setAppActive] = useState(AppState.currentState === "active" || AppState.currentState == null);
 
@@ -39,15 +37,7 @@ export function DmmScreen() {
     return () => sub.remove();
   }, []);
 
-  // Refresh on initial focus and after returning from another app.
-  useEffect(() => {
-    if (!isFocused || !appActive) return;
-    let cancelled = false;
-    void listSavedMeasurements()
-      .then(items => { if (!cancelled) setSavedCount(items.length); })
-      .catch(() => { /* Keep the previous count if storage is unavailable. */ });
-    return () => { cancelled = true; };
-  }, [isFocused, appActive]);
+  useEffect(() => { if (isFocused && appActive) void refreshSavedCount(); }, [isFocused, appActive, refreshSavedCount]);
 
   const dmmSupported = capabilities?.features.includes("DMM") ?? false;
   const connectedAndReady = state.connected && dmmSupported && dmmState !== null;
@@ -72,10 +62,19 @@ export function DmmScreen() {
     return formatDmmReading(dmmReading.value, dmmReading.unit);
   }, [mode, inspectedPoint, averagedVoltage, dmmReading, sensitivity]);
 
+  const displayedReading = useDisplayRefresh(
+    formattedReading,
+    displayRefreshMs,
+    `${mode}:${sensitivity}:${inspectedPoint?.timestamp ?? "live"}:${connectedAndReady}`,
+  );
+
   const selectMode = (nextMode: DmmFooterMode) => {
     if (nextMode !== mode) { setInspectedPoint(null); void changeMode(nextMode); }
   };
-  const showDeviceSheet = async () => { await stopForDeviceSheet(); setDeviceSheetVisible(true); };
+  useEffect(() => {
+    if (!isFocused) return;
+    return registerBeforeDeviceSheetOpen(stopForDeviceSheet);
+  }, [isFocused, stopForDeviceSheet, registerBeforeDeviceSheetOpen]);
 
   const handleSave = async () => {
     if (saving || switchingMode || !connectedAndReady) return;
@@ -101,8 +100,7 @@ export function DmmScreen() {
         ...(isCursor ? { interpolated: true } : {}),
       });
       // Refresh from persisted storage rather than assuming a successful write adds exactly one.
-      const savedItems = await listSavedMeasurements();
-      setSavedCount(savedItems.length);
+      await refreshSavedCount();
       setSaveNotice(isCursor ? "Selected graph reading saved" : "Measurement saved");
     } catch {
       setSaveNotice("Unable to save measurement");
@@ -117,37 +115,23 @@ export function DmmScreen() {
       contentContainerStyle={styles.screenContent}
       footerContainerStyle={styles.screenFooter}
       footer={<DmmModeFooter mode={mode} disabled={!connectedAndReady || switchingMode} onModeChange={selectMode} />}
-      header={<ScreenHeader title="PocketLab" subtitle="Digital Multimeter"
-      left={<DrawerMenuButton />} right={<View style={styles.headerActions}>
-        <DeviceStatusCard connected={state.connected}
-          reconnecting={reconnecting} deviceName={state.deviceName}
-          onPress={() => { void showDeviceSheet(); }} />
-        <View style={styles.savedShortcut}>
-          <IconButton icon="bookmark-multiple-outline" iconColor={c.surface} size={24}
-            accessibilityLabel={`View saved measurements, ${savedCount} saved`}
-            onPress={() => setSavedMeasurementsVisible(true)} style={styles.savedButton} />
-          {savedCount > 0 && <View style={styles.savedBadge} pointerEvents="none">
-            <Text style={styles.savedBadgeText}>{savedCount > 99 ? "99+" : savedCount}</Text>
-          </View>}
-          <Text style={styles.savedLabel}>Saved</Text>
-        </View>
-      </View>} />}>
+    >
       <View style={styles.content}>
         <View style={styles.readout}>
           <View style={styles.readingRow}>
             <Text style={styles.readingValue} numberOfLines={1} adjustsFontSizeToFit>
-              {switchingMode ? "…" : formattedReading.value}
+              {switchingMode ? "…" : displayedReading.value}
             </Text>
-            <Text style={styles.readingUnit}>{formattedReading.unit}</Text>
+            <Text style={styles.readingUnit}>{displayedReading.unit}</Text>
             {(mode === "VOLTAGE" || mode === "RESISTANCE") &&
               <IconButton icon="bookmark-outline" size={24} mode="contained-tonal"
                 style={styles.save} accessibilityLabel={inspectedPoint ? "Save selected graph reading" : "Save live measurement"}
                 disabled={!connectedAndReady || switchingMode || saving || formattedReading.value === "—" || formattedReading.value === "OL"}
                 onPress={() => { void handleSave(); }} />}
           </View>
-          {mode === "VOLTAGE" && <Button compact icon="tune-variant" mode="text" onPress={() => setVoltageSettingsVisible(true)}>
+          {/* {mode === "VOLTAGE" && <Button compact icon="tune-variant" mode="text" onPress={() => setVoltageSettingsVisible(true)}>
             {averaging === "FAST" ? "Fast" : averaging === "NORMAL" ? "Normal" : averaging === "STABLE" ? "Stable" : "Precision"} · {sensitivity === "AUTO" ? "Auto" : sensitivity === "HIGH" ? "High" : "Low"}
-          </Button>}
+          </Button>} */}
           {mode === "CONTINUITY" && <Text style={styles.continuity}>
             {dmmReading?.continuity === true ? "● Connected" : dmmReading?.continuity === false ? "○ Open" : "Checking…"}
           </Text>}
@@ -170,12 +154,18 @@ export function DmmScreen() {
     <Snackbar visible={recordNoticeVisible} onDismiss={() => setRecordNoticeVisible(false)} duration={2500}>
       CSV recording — coming soon
     </Snackbar>
-    <SavedMeasurementsScreen visible={savedMeasurementsVisible} onClose={() => setSavedMeasurementsVisible(false)}
-      onCountChange={setSavedCount} />
-    <DcVoltageSettings visible={voltageSettingsVisible} onDismiss={() => setVoltageSettingsVisible(false)}
-      averaging={averaging} onAveragingChange={setAveraging}
-      sensitivity={sensitivity} onSensitivityChange={setSensitivity} />
-    <ScanDeviceSheet visible={deviceSheetVisible} onDismiss={() => setDeviceSheetVisible(false)} />
+    {/* <DcVoltageSettings
+      visible={voltageSettingsVisible}
+      onDismiss={() => setVoltageSettingsVisible(false)}
+      averaging={averaging}
+      onAveragingChange={(value) =>
+        setDmmPreferences({ averaging: value })
+      }
+      sensitivity={sensitivity}
+      onSensitivityChange={(value) =>
+        setDmmPreferences({ sensitivity: value })
+      }
+    /> */}
   </>;
 }
 
