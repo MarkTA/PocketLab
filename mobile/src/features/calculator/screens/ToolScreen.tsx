@@ -7,6 +7,7 @@ import { pocketLabColors } from "@/themes/theme";
 
 import { useCalculatorCatalog } from "../CalculatorCatalogProvider";
 import { findCategory, findTool } from "../catalog";
+import { VoltageDividerTool } from "../tools/voltageDivider/VoltageDividerTool";
 
 export function ToolScreen({ slug }: { slug: string | undefined }) {
   const tool = findTool(slug);
@@ -20,7 +21,7 @@ export function ToolScreen({ slug }: { slug: string | undefined }) {
         <ScrollView contentContainerStyle={styles.content}>
           {tool ? (
             <>
-              <View style={styles.hero}>
+              {/* <View style={styles.hero}>
                 <View style={styles.heroIcon}>
                   <Icon
                     source={
@@ -51,16 +52,16 @@ export function ToolScreen({ slug }: { slug: string | undefined }) {
                 >
                   {isFavorite(tool.slug) ? "Pinned to favorites" : "Pin to favorites"}
                 </Button>
-              </View>
+              </View> */}
 
-              <View style={styles.placeholder}>
+              {tool.slug === "voltage-divider" ? <VoltageDividerTool /> : <View style={styles.placeholder}>
                 <Icon source="wrench-clock" size={32} color={pocketLabColors.mutedText} />
                 <Text variant="titleMedium">Workspace route ready</Text>
                 <Text variant="bodyMedium" style={styles.placeholderText}>
                   Inputs, equations, results, and validation for this tool will be added
                   on top of this shared calculator workspace.
                 </Text>
-              </View>
+              </View>}
             </>
           ) : (
             <Text variant="bodyLarge">This calculator tool could not be found.</Text>
