@@ -1,18 +1,16 @@
 import { useNavigation } from "expo-router";
-import { IconButton } from "react-native-paper";
+import { Appbar } from "react-native-paper";
 
-type DrawerNavigation = {
-  openDrawer: () => void;
-};
+type DrawerNavigation = { openDrawer: () => void };
 
+/** The existing Expo Router drawer remains the single navigation source. */
 export function DrawerMenuButton() {
   const navigation = useNavigation<DrawerNavigation>("/(drawer)");
 
   return (
-    <IconButton
+    <Appbar.Action
       icon="menu"
       iconColor="#FFFFFF"
-      size={28}
       accessibilityLabel="Open navigation menu"
       onPress={() => navigation.openDrawer()}
     />

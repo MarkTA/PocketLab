@@ -8,19 +8,13 @@ export default function CalculatorLayout() {
     <CalculatorCatalogProvider>
       <Stack
         screenOptions={{
-          headerStyle: {
-            backgroundColor: pocketLabColors.darkTeal,
-          },
-          headerTintColor: "#FFFFFF",
-          headerTitleStyle: {
-            fontWeight: "600",
-          },
+          headerShown: false,
           contentStyle: {
             backgroundColor: pocketLabColors.background,
           },
         }}
       >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="index" />
         <Stack.Screen name="category/[slug]" />
         <Stack.Screen name="tool/[slug]" />
       </Stack>

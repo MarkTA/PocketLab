@@ -5,10 +5,6 @@ import { Keyboard, StyleSheet, View } from "react-native";
 import { Text } from "react-native-paper";
 
 import { Screen } from "../../components/layout/Screen";
-import { ScreenHeader } from "../../components/layout/ScreenHeader";
-import { DrawerMenuButton } from "../../components/navigation/DrawerMenuButton";
-import { DeviceStatusCard } from "../device/DeviceStatusCard";
-import { ScanDeviceSheet } from "../device/ScanDeviceSheet";
 
 import {
   FunctionGeneratorSettingsPager,
@@ -20,10 +16,9 @@ import { WaveformPreview } from "./WaveformPreview";
 
 export function FunctionGeneratorScreen() {
   const generator = useFunctionGenerator();
-  const [deviceSheetVisible, setDeviceSheetVisible] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
-  const { state, reconnecting } = generator;
+  const { state } = generator;
 
   const [previewSettings, setPreviewSettings] = useState<EditableGeneratorSettings>({
     waveform: state.waveform,
@@ -62,23 +57,6 @@ export function FunctionGeneratorScreen() {
   return (
     <>
       <Screen
-        header={
-          <ScreenHeader
-            title="PocketLab"
-            subtitle="Function Generator"
-            left={<DrawerMenuButton />}
-            right={
-              <DeviceStatusCard
-                connected={state.connected}
-                reconnecting={reconnecting}
-                deviceName={state.deviceName}
-                onPress={() => {
-                  setDeviceSheetVisible(true);
-                }}
-              />
-            }
-          />
-        }
         footer={
           <OutputControlFooter
             connected={generator.connected}
@@ -121,12 +99,6 @@ export function FunctionGeneratorScreen() {
         ) : null}
       </Screen>
 
-      <ScanDeviceSheet
-        visible={deviceSheetVisible}
-        onDismiss={() => {
-          setDeviceSheetVisible(false);
-        }}
-      />
     </>
   );
 }

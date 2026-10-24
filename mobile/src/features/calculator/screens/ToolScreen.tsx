@@ -1,22 +1,20 @@
-import { Stack } from "expo-router";
 import { ScrollView, StyleSheet, View } from "react-native";
-import { Button, Chip, Icon, Text } from "react-native-paper";
+import { Icon, Text } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { pocketLabColors } from "@/themes/theme";
 
-import { useCalculatorCatalog } from "../CalculatorCatalogProvider";
+// import { useCalculatorCatalog } from "../CalculatorCatalogProvider";
 import { findCategory, findTool } from "../catalog";
 import { VoltageDividerTool } from "../tools/voltageDivider/VoltageDividerTool";
 
 export function ToolScreen({ slug }: { slug: string | undefined }) {
   const tool = findTool(slug);
   const category = findCategory(tool?.categorySlug);
-  const { isFavorite, toggleFavorite } = useCalculatorCatalog();
+  // const { isFavorite, toggleFavorite } = useCalculatorCatalog();
 
   return (
     <>
-      <Stack.Screen options={{ title: tool?.title ?? "Calculator tool" }} />
       <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
         <ScrollView contentContainerStyle={styles.content}>
           {tool ? (
