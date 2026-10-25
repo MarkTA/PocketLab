@@ -21,13 +21,17 @@ export function SettingsField({ field, value, onChange }: Props) {
     </Menu></View>;
   }
 
+  if (field.type !== "number") return null;
+
+  const min = field.min ?? -Infinity;
+  const max = field.max ?? Infinity;
   const shown = numberDraft ?? String(value ?? "");
   const commit = () => {
     setNumberDraft(null);
     if (!shown.trim()) return;
     const parsed = Number(shown);
     if (!Number.isFinite(parsed)) return;
-    const clamped = Math.max(field.min ?? -Infinity, Math.min(field.max ?? Infinity, parsed));
+    const clamped = Math.max(min, Math.min(max, parsed));
     onChange(clamped);
   };
   return <View style={styles.row}>{title}<TextInput style={styles.number} dense mode="outlined" accessibilityLabel={field.label} keyboardType="decimal-pad" value={shown} onChangeText={setNumberDraft} onBlur={commit} onSubmitEditing={commit} /></View>;

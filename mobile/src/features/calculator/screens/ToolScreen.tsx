@@ -5,12 +5,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { pocketLabColors } from "@/themes/theme";
 
 // import { useCalculatorCatalog } from "../CalculatorCatalogProvider";
-import { findCategory, findTool } from "../catalog";
+import {
+  // findCategory,
+  findTool
+} from "../catalog";
 import { VoltageDividerTool } from "../tools/voltageDivider/VoltageDividerTool";
 
 export function ToolScreen({ slug }: { slug: string | undefined }) {
   const tool = findTool(slug);
-  const category = findCategory(tool?.categorySlug);
+  // const category = findCategory(tool?.categorySlug);
   // const { isFavorite, toggleFavorite } = useCalculatorCatalog();
 
   return (

@@ -162,7 +162,7 @@ class BleDiagnostic {
         return;
       }
 
-      const displayName = device.name ?? device.localName ?? "Unnamed BLE device";
+      // const displayName = device.name ?? device.localName ?? "Unnamed BLE device";
 
       //console.log(`[BLE] Found: ${displayName}, ID: ${device.id}, RSSI: ${device.rssi}`);
 
@@ -513,7 +513,7 @@ class BleDiagnostic {
   // ---------------------------------------------------------------------------
 
   public async writeCommand(command: string): Promise<void> {
-    const device = this.requireConnectedDevice();
+    // const device = this.requireConnectedDevice();
 
     const normalizedCommand = command.trim();
 
@@ -521,7 +521,7 @@ class BleDiagnostic {
       throw new Error("Cannot send an empty PocketLab command.");
     }
 
-    const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
+    // const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
 
     // console.log("[BLE] Writing PocketLab command:", {
     //   command: normalizedCommand,
@@ -530,11 +530,11 @@ class BleDiagnostic {
     //   encodedValue,
     // });
 
-    const result = await device.writeCharacteristicWithResponseForService(
-      POCKETLAB_SERVICE_UUID,
-      COMMAND_RX_UUID,
-      encodedValue
-    );
+    // const result = await device.writeCharacteristicWithResponseForService(
+    //   POCKETLAB_SERVICE_UUID,
+    //   COMMAND_RX_UUID,
+    //   encodedValue
+    // );
 
     // console.log("[BLE] Command write accepted:", {
     //   serviceUUID: result.serviceUUID,
@@ -555,7 +555,7 @@ class BleDiagnostic {
     }
 
     const connected = await device.isConnected();
-    const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
+    // const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
 
     // console.log("[BLE DIRECT TEST] Starting:", {
     //   deviceId: device.id,
@@ -574,11 +574,11 @@ class BleDiagnostic {
       );
     }
 
-    const writeResult = await device.writeCharacteristicWithResponseForService(
-      POCKETLAB_SERVICE_UUID,
-      COMMAND_RX_UUID,
-      encodedValue
-    );
+    // const writeResult = await device.writeCharacteristicWithResponseForService(
+    //   POCKETLAB_SERVICE_UUID,
+    //   COMMAND_RX_UUID,
+    //   encodedValue
+    // );
 
     // console.log("[BLE DIRECT TEST] Write accepted:", {
     //   deviceId: device.id,

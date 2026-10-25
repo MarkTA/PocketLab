@@ -9,7 +9,7 @@ import { usePocketLabDevice } from "../device/DeviceProvider";
 import { useAppShell } from "../appShell/AppShellContext";
 import { InteractiveVoltageGraph } from "./components/InteractiveVoltageGraph";
 import { DmmModeFooter, type DmmFooterMode } from "./components/DmmModeFooter";
-import { DcVoltageSettings, AVERAGING_WINDOW_MS, type AveragingPreset, type SensitivityPreset } from "./components/DcVoltageSettings";
+import { AVERAGING_WINDOW_MS } from "./components/DcVoltageSettings";
 import { averageRecentVoltage, formatDcVoltage } from "./graph/dcVoltageDisplay";
 import { useContinuousDmm } from "./hooks/useContinuousDmm";
 import { useDmmPreferences } from "./preferences/DmmPreferencesProvider";
@@ -26,8 +26,7 @@ export function DmmScreen() {
   const [recordNoticeVisible, setRecordNoticeVisible] = useState(false);
   // const [voltageSettingsVisible, setVoltageSettingsVisible] = useState(false);
   const {
-    preferences: { averaging, sensitivity, displayRefreshMs },
-    setPreferences: setDmmPreferences,
+    preferences: { averaging, sensitivity, displayRefreshMs }
   } = useDmmPreferences();
   const isFocused = useIsFocused();
   const [appActive, setAppActive] = useState(AppState.currentState === "active" || AppState.currentState == null);
