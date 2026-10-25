@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 
-/** Throttle only the displayed reading. Sampling, graphing and saving remain live. */
+/** Throttle the numeric readout only; BLE sampling and graphs remain live. */
 export function useDisplayRefresh<T>(
   latestValue: T,
   intervalMs: number,
   resetKey: string,
 ): T {
   const latest = useRef(latestValue);
-  latest.current = latestValue;
-
   const [published, setPublished] = useState(latestValue);
-  const previousResetKey = useRef(resetKey);
 
-  // A changed mode, sensitivity or cursor should be visible right away.
-  const reset = previousResetKey.current !== resetKey;
-  if (reset) previousResetKey.current = resetKey;
+  // Keep the newest reading available to the timer without changing its cadence.
+  useEffect(() => {
+    latest.current = latestValue;
+  }, [latestValue]);
 
+  // Publish the current reading at the requested display rate.
   useEffect(() => {
     const timer = setInterval(() => {
       setPublished(latest.current);
@@ -23,5 +22,12 @@ export function useDisplayRefresh<T>(
     return () => clearInterval(timer);
   }, [intervalMs]);
 
-  return reset ? latestValue : published;
+  // Refresh promptly when the measurement context changes (mode/cursor/etc.).
+  // Scheduling the update avoids a synchronous state update inside an effect.
+  useEffect(() => {
+    const timer = setTimeout(() => setPublished(latest.current), 0);
+    return () => clearTimeout(timer);
+  }, [resetKey]);
+
+  return published;
 }

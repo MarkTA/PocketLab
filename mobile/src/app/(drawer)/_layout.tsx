@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
-import { Drawer, } from "expo-router/drawer";
+import { ScrollView, StyleSheet } from "react-native";
+import { Drawer } from "expo-router/drawer";
 import { usePathname, useRouter } from "expo-router";
-import { Drawer as PaperDrawer, Icon } from "react-native-paper";
+import { Drawer as PaperDrawer } from "react-native-paper";
 
 import { PocketLabAppShell } from "@/components/layout/PocketLabAppShell";
 import { useAppShell } from "@/features/appShell/AppShellContext";
@@ -28,7 +28,7 @@ function PocketLabDrawerContent({ navigation }: DrawerContentProps) {
     return registerOpenDrawer(() => navigation.openDrawer());
   }, [navigation, registerOpenDrawer]);
 
-  const navigate = (href: "/" | "/dmm" | "/calculator") => {
+  const navigate = (href: "/" | "/dmm" | "/calculator" | "/log") => {
     navigation.closeDrawer();
     router.navigate(href);
   };
@@ -57,6 +57,12 @@ function PocketLabDrawerContent({ navigation }: DrawerContentProps) {
           active={pathname.startsWith("/calculator")}
           onPress={() => navigate("/calculator")}
         />
+        <PaperDrawer.Item
+          icon="notebook-outline"
+          label="Log"
+          active={pathname.startsWith("/log")}
+          onPress={() => navigate("/log")}
+        />
       </PaperDrawer.Section>
     </ScrollView>
   );
@@ -76,7 +82,7 @@ function DrawerNavigator() {
         drawerLabelStyle: { marginLeft: -12, fontSize: 15, fontWeight: "600" },
         drawerStyle: { backgroundColor: c.surface },
         drawerType: "front",
-        swipeEdgeWidth: 48,
+        swipeEnabled: false,
       }}
     >
       <Drawer.Screen
@@ -84,9 +90,6 @@ function DrawerNavigator() {
         options={{
           title: "Function Generator",
           drawerLabel: "Function Generator",
-          drawerIcon: ({ color, size }) => (
-            <Icon source="sine-wave" color={color} size={size} />
-          ),
         }}
       />
       <Drawer.Screen
@@ -94,19 +97,17 @@ function DrawerNavigator() {
         options={{
           title: "Digital Multimeter",
           drawerLabel: "Digital Multimeter",
-          drawerIcon: ({ color, size }) => (
-            <Icon source="gauge" color={color} size={size} />
-          ),
         }}
+      />
+      <Drawer.Screen
+        name="log"
+        options={{ title: "Log", drawerLabel: "Log" }}
       />
       <Drawer.Screen
         name="calculator"
         options={{
           title: "EE Calculator",
           drawerLabel: "EE Calculator",
-          drawerIcon: ({ color, size }) => (
-            <Icon source="calculator-variant-outline" color={color} size={size} />
-          ),
         }}
       />
     </Drawer>

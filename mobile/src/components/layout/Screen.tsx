@@ -16,7 +16,6 @@ type ScreenProps = {
 export function Screen({ header, children, footer, contentContainerStyle, footerContainerStyle }: ScreenProps) {
   return (
     <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
-      {header ? <View style={styles.header}>{header}</View> : null}
       <View style={styles.container}>
         <View style={[styles.content, contentContainerStyle]}>{children}</View>
         {footer ? <View style={[styles.footer, footerContainerStyle]}>{footer}</View> : null}
@@ -28,12 +27,6 @@ export function Screen({ header, children, footer, contentContainerStyle, footer
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: pocketLabColors.darkTeal },
   container: { flex: 1, backgroundColor: pocketLabColors.surface },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 12,
-    backgroundColor: pocketLabColors.darkTeal,
-  },
-  content: { flex: 1, paddingHorizontal: 16, paddingBottom: 32, gap: 16 },
-  footer: { paddingHorizontal: 16, paddingVertical: 12 },
+  content: { flex: 1, paddingHorizontal: 16, paddingBottom: 0, gap: 1 },
+  footer: { paddingHorizontal: 16, paddingVertical: 0 },
 });
