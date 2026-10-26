@@ -5,14 +5,14 @@
 
 static void led_all_off(void)
 {
-    nrf_gpio_pin_set(PIN_LED_R);
+    
     nrf_gpio_pin_set(PIN_LED_G);
     nrf_gpio_pin_set(PIN_LED_B);
 }
 
 void led_init(void)
 {
-    nrf_gpio_cfg_output(PIN_LED_R);
+    
     nrf_gpio_cfg_output(PIN_LED_G);
     nrf_gpio_cfg_output(PIN_LED_B);
 
@@ -22,12 +22,6 @@ void led_init(void)
 void led_off(void)
 {
     led_all_off();
-}
-
-void led_set_red(void)
-{
-    led_all_off();
-    nrf_gpio_pin_clear(PIN_LED_R);
 }
 
 void led_set_green(void)
@@ -54,5 +48,5 @@ void led_set_connected(void)
 
 void led_set_disconnected(void)
 {
-    led_set_red();
+    led_all_off();
 }
