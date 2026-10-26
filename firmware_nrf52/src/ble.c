@@ -7,7 +7,6 @@
 #include "board_pins.h"
 
 #include <hal/nrf_gpio.h>
-#include <hal/nrf_pwm.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
@@ -33,7 +32,7 @@ typedef enum {
 static atomic_t current_dmm_mode = ATOMIC_INIT(DMM_MODE_VOLTAGE);
 static atomic_t connected_state = ATOMIC_INIT(0);
 static atomic_t continuity_active = ATOMIC_INIT(0);
-static atomic_t buzzer_tone_active = ATOMIC_INIT(0);
+static atomic_t continuity_detected = ATOMIC_INIT(0);
 
 /* Serializes all ADS1220 accesses and DMM mode changes. */
 K_MUTEX_DEFINE(dmm_mutex);
@@ -44,7 +43,6 @@ K_SEM_DEFINE(continuity_wake, 0, 1);
 #define CONTINUITY_POLL_GAP_MS 1 /* Additional pause AFTER each fast ADC conversion. */
 #define CONTINUITY_ON_CONFIRM_SAMPLES   2
 #define CONTINUITY_OFF_CONFIRM_SAMPLES  2
-#define CONTINUITY_MIN_BEEP_MS         25
 
 /* Cached status is only accessed while dmm_mutex is held. */
 static resistance_result_t continuity_result = RESISTANCE_RESULT_ERROR;
@@ -52,73 +50,29 @@ static double continuity_ohms;
 static bool continuity_has_sample;
 
 
-/* EVT1 buzzer: PWM drives the active-low red LED GPIO through the external
- * transistor driver. MODE_RELAY_EN is the independent hardware interlock.
- * That relay gate is forced LOW immediately on mode changes/disconnect. */
-#define BUZZER_PWM_TOP 250  /* 1 MHz / 250 = 4 kHz */
-#define BUZZER_PWM_DUTY 125 /* 50% */
-
-/* EasyDMA requires the sequence to reside in RAM. */
-static uint16_t buzzer_pwm_sequence[1] = { BUZZER_PWM_DUTY };
-static bool buzzer_running;
-
-static void buzzer_stop(void)
+/* EVT1 uses phone audio. No hardware PWM or buzzer output is configured.
+ * P1.05 (former red LED / buzzer gate) is held LOW in main.c.
+ * Notifications use the existing PocketLab response characteristic. */
+static void continuity_set_detected(bool detected)
 {
-    if (buzzer_running) {
-        NRF_PWM2->SHORTS = 0;
-        NRF_PWM2->TASKS_STOP = 1;
-        /* Do not let PWM retain ownership of GPIO_R. */
-        NRF_PWM2->ENABLE = 0;
-        NRF_PWM2->PSEL.OUT[0] = 0xFFFFFFFFu;
-        buzzer_running = false;
-    }
-    nrf_gpio_cfg_output(PIN_LED_R);
-    nrf_gpio_pin_clear(PIN_LED_R); /* MOSFET off */
-    atomic_clear(&buzzer_tone_active);
-}
-
-static void buzzer_start(void)
-{
-    if (buzzer_running) {
+    if (!!atomic_get(&continuity_detected) == detected) {
         return;
     }
-
-    buzzer_stop();
-    led_set_connected(); /* Green on; red output inactive before PWM. */
-
-    NRF_PWM2->ENABLE = 0;
-    NRF_PWM2->PSEL.OUT[0] = PIN_LED_R;
-    NRF_PWM2->PSEL.OUT[1] = 0xFFFFFFFFu;
-    NRF_PWM2->PSEL.OUT[2] = 0xFFFFFFFFu;
-    NRF_PWM2->PSEL.OUT[3] = 0xFFFFFFFFu;
-    NRF_PWM2->PRESCALER = 4; /* 16 MHz / 2^4 = 1 MHz */
-    NRF_PWM2->MODE = 0; /* up counter */
-    NRF_PWM2->COUNTERTOP = BUZZER_PWM_TOP;
-    NRF_PWM2->DECODER = 0; /* common load, refresh on every period */
-    NRF_PWM2->LOOP = 1;
-    NRF_PWM2->SEQ[0].PTR = (uint32_t)buzzer_pwm_sequence;
-    NRF_PWM2->SEQ[0].CNT = 1;
-    NRF_PWM2->SEQ[0].REFRESH = 0;
-    NRF_PWM2->SEQ[0].ENDDELAY = 0;
-    NRF_PWM2->SHORTS = PWM_SHORTS_LOOPSDONE_SEQSTART0_Msk;
-    NRF_PWM2->ENABLE = 1;
-    buzzer_running = true;
-    atomic_set(&buzzer_tone_active, 1);
-    NRF_PWM2->TASKS_SEQSTART[0] = 1;
-    printk("[BUZZER] Continuity 4 kHz tone ON\n");
+    atomic_set(&continuity_detected, detected ? 1 : 0);
+    (void)ble_send_response(detected ? "CONTINUITY=ON" : "CONTINUITY=OFF");
 }
 
-/* Cut the hardware gate immediately, even if an ADC conversion is in flight. */
+/* Remove resistance excitation immediately on mode exit / disconnect. */
 static void continuity_disable_immediately(void)
 {
     atomic_clear(&continuity_active);
     nrf_gpio_pin_clear(PIN_MODE_RELAY_EN);
     nrf_gpio_pin_clear(PIN_MUX_EN);
-    buzzer_stop();
+    /* Callers reset/notify continuity state after acquiring dmm_mutex. */
 }
 
-/* This thread is dormant outside continuity mode. Only one context at a
- * time ever touches ADS1220. The buzzer operates even without app polling. */
+/* Continuity worker owns the ADC and debounce state while in continuity mode.
+ * State transitions are notified once, not on every resistance sample. */
 static void continuity_thread(void *a, void *b, void *c)
 {
     ARG_UNUSED(a);
@@ -127,171 +81,64 @@ static void continuity_thread(void *a, void *b, void *c)
 
     uint8_t on_confirm_count = 0;
     uint8_t off_confirm_count = 0;
-    int64_t buzzer_started_ms = 0;
 
     while (true) {
         k_sem_take(&continuity_wake, K_FOREVER);
-
-        /*
-         * Start each continuity session with clean debounce state.
-         */
         on_confirm_count = 0;
         off_confirm_count = 0;
-        buzzer_started_ms = 0;
 
         while (atomic_get(&continuity_active)) {
             k_mutex_lock(&dmm_mutex, K_FOREVER);
-
             if (atomic_get(&continuity_active) &&
                 atomic_get(&connected_state) &&
                 atomic_get(&current_dmm_mode) == DMM_MODE_CONTINUITY) {
-
                 double ohms = 0.0;
-                resistance_result_t result =
-                    resistance_read_continuity(&ohms);
+                resistance_result_t result = resistance_read_continuity(&ohms);
 
-                /*
-                 * A disconnect can happen during the ADC conversion.
-                 * Never re-enable the tone after the urgent relay cutoff.
-                 */
+                /* Disconnect or mode change can occur during ADC conversion. */
                 if (atomic_get(&continuity_active) &&
                     atomic_get(&connected_state) &&
                     atomic_get(&current_dmm_mode) == DMM_MODE_CONTINUITY) {
-
                     continuity_result = result;
                     continuity_has_sample =
                         (result != RESISTANCE_RESULT_ERROR);
 
                     if (result == RESISTANCE_RESULT_OK) {
                         continuity_ohms = ohms;
-
-                        /*
-                         * -------------------------
-                         * Buzzer currently OFF
-                         * -------------------------
-                         */
-                        if (!atomic_get(&buzzer_tone_active)) {
-
+                        if (!atomic_get(&continuity_detected)) {
                             off_confirm_count = 0;
-
                             if (ohms <= CONTINUITY_ON_OHMS) {
-                                if (on_confirm_count <
-                                    CONTINUITY_ON_CONFIRM_SAMPLES) {
-                                    on_confirm_count++;
-                                }
-
-                                if (on_confirm_count >=
-                                    CONTINUITY_ON_CONFIRM_SAMPLES) {
-
-                                    buzzer_start();
-                                    buzzer_started_ms =
-                                        k_uptime_get();
-
+                                if (++on_confirm_count >= CONTINUITY_ON_CONFIRM_SAMPLES) {
+                                    continuity_set_detected(true);
                                     on_confirm_count = 0;
                                 }
                             } else {
-                                /*
-                                 * Continuity disappeared before
-                                 * confirmation completed.
-                                 */
                                 on_confirm_count = 0;
                             }
-                        }
-
-                        /*
-                         * -------------------------
-                         * Buzzer currently ON
-                         * -------------------------
-                         */
-                        else {
-
+                        } else {
                             on_confirm_count = 0;
-
-                            /*
-                             * Don't allow the tone to stop until
-                             * the minimum beep duration has elapsed.
-                             */
-                            const int64_t tone_age_ms =
-                                k_uptime_get() -
-                                buzzer_started_ms;
-
-                            if (tone_age_ms >=
-                                CONTINUITY_MIN_BEEP_MS) {
-
-                                if (ohms >=
-                                    CONTINUITY_OFF_OHMS) {
-
-                                    if (off_confirm_count <
-                                        CONTINUITY_OFF_CONFIRM_SAMPLES) {
-                                        off_confirm_count++;
-                                    }
-
-                                    if (off_confirm_count >=
-                                        CONTINUITY_OFF_CONFIRM_SAMPLES) {
-
-                                        buzzer_stop();
-                                        off_confirm_count = 0;
-                                    }
-                                } else {
-                                    /*
-                                     * Reading returned below the
-                                     * OFF threshold, so cancel the
-                                     * pending turn-off.
-                                     */
+                            if (ohms >= CONTINUITY_OFF_OHMS) {
+                                if (++off_confirm_count >= CONTINUITY_OFF_CONFIRM_SAMPLES) {
+                                    continuity_set_detected(false);
                                     off_confirm_count = 0;
                                 }
+                            } else {
+                                off_confirm_count = 0;
                             }
                         }
                     } else {
-                        /*
-                         * OL or ADC error.
-                         *
-                         * Treat these like a possible loss of
-                         * continuity, but still honor the minimum
-                         * beep duration and confirmation count.
-                         */
+                        /* Invalid/OL readings must mute phone audio promptly. */
                         on_confirm_count = 0;
-
-                        if (atomic_get(&buzzer_tone_active)) {
-
-                            const int64_t tone_age_ms =
-                                k_uptime_get() -
-                                buzzer_started_ms;
-
-                            if (tone_age_ms >=
-                                CONTINUITY_MIN_BEEP_MS) {
-
-                                if (off_confirm_count <
-                                    CONTINUITY_OFF_CONFIRM_SAMPLES) {
-                                    off_confirm_count++;
-                                }
-
-                                if (off_confirm_count >=
-                                    CONTINUITY_OFF_CONFIRM_SAMPLES) {
-
-                                    buzzer_stop();
-                                    off_confirm_count = 0;
-                                }
-                            }
-                        } else {
-                            off_confirm_count = 0;
-                        }
+                        off_confirm_count = 0;
+                        continuity_set_detected(false);
                     }
                 }
             }
-
             k_mutex_unlock(&dmm_mutex);
-
             k_msleep(CONTINUITY_POLL_GAP_MS);
         }
-
-        /*
-         * Ensure no stale debounce state survives leaving
-         * continuity mode.
-         */
         on_confirm_count = 0;
         off_confirm_count = 0;
-        buzzer_started_ms = 0;
     }
 }
 
@@ -514,7 +361,7 @@ static void handle_command(const char *command)
         return;
     }
 
-    /* All mode transitions disable the buzzer/relay BEFORE changing the ADC. */
+    /* All mode transitions disable resistance excitation before reconfiguring ADC. */
     if (strcmp(command, "DMM:SET_MODE VOLTAGE") == 0 ||
         strcmp(command, "DMM:SET_MODE RESISTANCE") == 0 ||
         strcmp(command, "DMM:SET_MODE CONTINUITY") == 0) {
@@ -523,6 +370,7 @@ static void handle_command(const char *command)
         k_mutex_lock(&dmm_mutex, K_FOREVER);
         continuity_has_sample = false;
         continuity_result = RESISTANCE_RESULT_ERROR;
+        continuity_set_detected(false);
 
         bool ok = false;
         char response[96];
@@ -566,6 +414,8 @@ static void handle_command(const char *command)
 
         ble_send_response(ok ? response : "ERR ADC_CONFIG_FAILED");
         if (ok && atomic_get(&continuity_active)) {
+            /* Explicit initial state for the app's audio component. */
+            (void)ble_send_response("CONTINUITY=OFF");
             k_sem_give(&continuity_wake);
         }
         return;
@@ -598,7 +448,7 @@ static void handle_command(const char *command)
                 ok = true;
             }
         } else if (mode == DMM_MODE_CONTINUITY && continuity_has_sample) {
-            const int detected = atomic_get(&buzzer_tone_active) ? 1 : 0;
+            const int detected = atomic_get(&continuity_detected) ? 1 : 0;
             if (continuity_result == RESISTANCE_RESULT_OPEN) {
                 snprintf(response, sizeof(response),
                          "DMM:VALUE OL;UNIT=OHM;MODE=CONTINUITY;CONT=0;RANGE=10K;RREF=10000");
@@ -811,8 +661,9 @@ static void disconnected(
     atomic_clear(&connected_state);
     restart_advertising = true;
 
-    /* Immediately remove buzzer enable and resistance excitation. */
+    /* Immediately remove resistance excitation and reset continuity state. */
     continuity_disable_immediately();
+    atomic_clear(&continuity_detected);
     atomic_set(&current_dmm_mode, DMM_MODE_VOLTAGE);
 
     printk("BLE disconnected: %u\n", reason);

@@ -6,6 +6,8 @@
 #include "ble.h"
 #include "ads1220.h"
 #include "resistance.h"
+#include "board_pins.h"
+#include <hal/nrf_gpio.h>
 
 /* Power down after two minutes without a BLE connection. */
 #define BLE_DISCONNECT_TIMEOUT_MS 120000LL
@@ -13,6 +15,9 @@
 int main(void)
 {
     power_init();
+    /* EVT1: unused P1.05 remains LOW so the old MOSFET gate cannot turn on. */
+    nrf_gpio_pin_clear(PIN_LED_R);
+    nrf_gpio_cfg_output(PIN_LED_R);
     led_init();
     resistance_init();
 
@@ -26,7 +31,6 @@ int main(void)
 
     if (ble_init() != 0) {
         printk("BLE startup failed\n");
-        led_set_red();
     }
 
     if (!ads1220_init()) {

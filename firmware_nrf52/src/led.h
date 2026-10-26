@@ -3,7 +3,6 @@
 void led_init(void);
 
 void led_off(void);
-void led_set_red(void);
 void led_set_green(void);
 void led_set_blue(void);
 
