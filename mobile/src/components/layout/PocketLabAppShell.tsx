@@ -15,6 +15,7 @@ import { findCategory, findTool } from "@/features/calculator/catalog";
 import { AppShellContextProvider } from "@/features/appShell/AppShellContext";
 import { useSettingsAdapter } from "@/features/settings/useSettingsAdapter";
 import { WorkspaceBar } from "@/components/navigation/WorkspaceBar";
+import { InstrumentSelector } from "@/components/navigation/InstrumentSelector";
 
 function routePresentation(pathname: string) {
   const path = decodeURIComponent(pathname);
@@ -44,7 +45,14 @@ export function PocketLabAppShell({ children }: { children: ReactNode }) {
     if (workspace === "tools") router.navigate(lastCalculatorPath.current);
     else router.navigate(workspace === "measure" ? "/dmm" : "/log");
   };
-  const { state, reconnecting } = usePocketLabDevice();
+  const { state, reconnecting, capabilities } = usePocketLabDevice();
+  const isMeasureRoute = pathname === "/" || pathname.startsWith("/dmm");
+  const activeInstrument = pathname.startsWith("/dmm") ? "dmm" : "function-generator";
+  const generatorAvailable = state.connected &&
+    (capabilities?.features.includes("FG") ?? false);
+  const openInstrument = (instrument: "dmm" | "function-generator") => {
+    router.navigate(instrument === "dmm" ? "/dmm" : "/");
+  };
   const [deviceSheetVisible, setDeviceSheetVisible] = useState(false);
   const [savedVisible, setSavedVisible] = useState(false);
   const [settingsScopeOpen, setSettingsScopeOpen] = useState<string | null>(null);
@@ -163,6 +171,13 @@ export function PocketLabAppShell({ children }: { children: ReactNode }) {
           <View style={styles.mainColumn}>
             {!isLandscape && location.child ? (
               <FeatureSubheader title={location.child} onBack={goBackInCalculator} />
+            ) : null}
+            {isMeasureRoute ? (
+              <InstrumentSelector
+                active={activeInstrument}
+                generatorAvailable={generatorAvailable}
+                onSelect={openInstrument}
+              />
             ) : null}
             <View style={styles.content}>{children}</View>
           </View>

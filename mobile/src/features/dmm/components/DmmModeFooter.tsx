@@ -1,7 +1,6 @@
-/* src/features/dmm/components/DmmModeFooter.tsx */
-import { StyleSheet, View } from "react-native";
-import { Button } from "react-native-paper";
-import { pocketLabColors as c } from "../../../themes/theme";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Icon, Text } from "react-native-paper";
+import { pocketLabColors as c } from "@/themes/theme";
 
 export type DmmFooterMode = "VOLTAGE" | "RESISTANCE" | "CONTINUITY";
 
@@ -19,38 +18,63 @@ const MODES = [
 
 export function DmmModeFooter({ mode, disabled, onModeChange }: Props) {
   return (
-    <View style={styles.footer} accessibilityRole="tablist">
-      {MODES.map((item) => (
-        <Button
-          key={item.mode}
-          mode="text"
-          compact
-          icon={item.icon}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: mode === item.mode, disabled }}
-          disabled={disabled}
-          style={[styles.tab, mode === item.mode && styles.tabSelected]}
-          contentStyle={styles.tabContent}
-          labelStyle={styles.tabLabel}
-          textColor={c.surface}
-          onPress={() => onModeChange(item.mode)}
-        >
-          {item.label}
-        </Button>
-      ))}
+    <View style={styles.group} accessibilityRole="tablist">
+      {MODES.map((item) => {
+        const selected = mode === item.mode;
+        return (
+          <Pressable
+            key={item.mode}
+            accessibilityRole="tab"
+            accessibilityState={{ selected, disabled }}
+            disabled={disabled}
+            onPress={() => onModeChange(item.mode)}
+            style={({ pressed }) => [
+              styles.tab,
+              selected && styles.selected,
+              pressed && !disabled && styles.pressed,
+              disabled && styles.disabled,
+            ]}
+          >
+            <View style={styles.tabLabel}>
+              <Icon source={item.icon} size={18} color={selected ? c.darkTeal : c.mutedText} />
+              <Text style={[styles.text, { color: selected ? c.darkTeal : c.mutedText }]}>
+                {item.label}
+              </Text>
+            </View>
+            {selected && <View style={styles.indicator} />}
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  footer: {
+  group: {
     flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: c.darkTeal,
-    backgroundColor: c.darkTeal,
+    backgroundColor: c.background,
+    borderRadius: 12,
+    overflow: "hidden",
   },
-  tab: { flex: 1, borderRadius: 0 },
-  tabSelected: { borderTopWidth: 3, borderTopColor: c.green },
-  tabContent: { minHeight: 56, paddingHorizontal: 0, flexDirection: "column" },
-  tabLabel: { fontSize: 11, marginHorizontal: 0 },
+  tab: {
+    flex: 1,
+    minHeight: 48,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  selected: { backgroundColor: "#E9F2E3" },
+  pressed: { opacity: 0.75 },
+  disabled: { opacity: 0.5 },
+  tabLabel: { flexDirection: "row", alignItems: "center", gap: 4 },
+  text: { fontSize: 12, fontWeight: "600" },
+  indicator: {
+    position: "absolute",
+    bottom: 0,
+    left: 12,
+    right: 12,
+    height: 3,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+    backgroundColor: c.orange,
+  },
 });

@@ -1,6 +1,6 @@
 /* src/features/device/DeviceProvider.tsx */
 
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { ACTIVE_CALIBRATION_PROFILE } from "../../calibration/activeCalibration";
 import { toHardwareGeneratorSettings } from "../../calibration/calibrationTransforms";
@@ -106,6 +106,9 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
   const [dmmReading, setDmmReading] = useState<DmmReading | null>(null);
 
   const [dmmState, setDmmState] = useState<DmmState | null>(null);
+  const [continuityActive, setContinuityActive] = useState(false);
+
+  useEffect(() => bleDiagnostic.onContinuityChanged(setContinuityActive), []);
 
   const { scanning, discoveredDevices, scanForDevices, stopScan } = useBleScanner();
 
@@ -127,6 +130,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
 
   const setDmmMode = useCallback(async (mode: DmmMode): Promise<DmmState> => {
     console.log(`[DMM] Setting mode: ${mode}`);
+    setContinuityActive(false);
 
     const response = await bleDiagnostic.request(`DMM:SET_MODE ${mode}`);
 
@@ -315,6 +319,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       capabilities,
       dmmState,
 
+      continuityActive: state.connected && dmmState?.mode === "CONTINUITY" && continuityActive,
       dmmReading,
       requestDmmReading,
 
@@ -345,6 +350,7 @@ export function DeviceProvider({ children }: { children: React.ReactNode }) {
       capabilities,
       dmmState,
 
+      continuityActive,
       dmmReading,
       requestDmmReading,
 

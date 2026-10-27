@@ -3,7 +3,6 @@ import { useIsFocused } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { AppState, StyleSheet, View } from "react-native";
 import { Button, IconButton, Snackbar, Text } from "react-native-paper";
-import { Screen } from "../../components/layout/Screen";
 import { pocketLabColors as c } from "../../themes/theme";
 import { usePocketLabDevice } from "../device/DeviceProvider";
 import { useAppShell } from "../appShell/AppShellContext";
@@ -17,7 +16,7 @@ import { saveMeasurement } from "./storage/savedMeasurements";
 import { useDisplayRefresh } from "@/features/dmm/hooks/useDisplayRefresh";
 
 export function DmmScreen() {
-  const { state, capabilities, dmmState, requestDmmReading, setDmmMode } = usePocketLabDevice();
+  const { state, capabilities, dmmState, continuityActive, requestDmmReading, setDmmMode } = usePocketLabDevice();
   const { deviceSheetVisible, registerBeforeDeviceSheetOpen, refreshSavedCount } = useAppShell();
   const [saveNoticeVisible, setSaveNoticeVisible] = useState(false);
   const [saveNotice, setSaveNotice] = useState("");
@@ -31,6 +30,8 @@ export function DmmScreen() {
   const isFocused = useIsFocused();
   const [appActive, setAppActive] = useState(AppState.currentState === "active" || AppState.currentState == null);
 
+  
+
   useEffect(() => {
     const sub = AppState.addEventListener("change", next => setAppActive(next === "active"));
     return () => sub.remove();
@@ -42,6 +43,7 @@ export function DmmScreen() {
   const connectedAndReady = state.connected && dmmSupported && dmmState !== null;
   const mode = dmmState?.mode ?? "VOLTAGE";
   const streamEnabled = connectedAndReady && isFocused && appActive && !deviceSheetVisible;
+  const audioEnabled = streamEnabled && mode === "CONTINUITY";
   const { reading: dmmReading, samples, error: readingError,
     switchingMode, changeMode, stopForDeviceSheet } = useContinuousDmm({
       connected: state.connected, enabled: streamEnabled, mode: dmmState?.mode ?? null,
@@ -110,12 +112,9 @@ export function DmmScreen() {
   };
 
   return <>
-    <Screen
-      contentContainerStyle={styles.screenContent}
-      footerContainerStyle={styles.screenFooter}
-      footer={<DmmModeFooter mode={mode} disabled={!connectedAndReady || switchingMode} onModeChange={selectMode} />}
-    >
+    <View style={styles.screen}>
       <View style={styles.content}>
+        <DmmModeFooter mode={mode} disabled={!connectedAndReady || switchingMode} onModeChange={selectMode} />
         <View style={styles.readout}>
           <View style={styles.readingRow}>
             <Text style={styles.readingValue} numberOfLines={1} adjustsFontSizeToFit>
@@ -128,11 +127,9 @@ export function DmmScreen() {
                 disabled={!connectedAndReady || switchingMode || saving || formattedReading.value === "—" || formattedReading.value === "OL"}
                 onPress={() => { void handleSave(); }} />}
           </View>
-          {/* {mode === "VOLTAGE" && <Button compact icon="tune-variant" mode="text" onPress={() => setVoltageSettingsVisible(true)}>
-            {averaging === "FAST" ? "Fast" : averaging === "NORMAL" ? "Normal" : averaging === "STABLE" ? "Stable" : "Precision"} · {sensitivity === "AUTO" ? "Auto" : sensitivity === "HIGH" ? "High" : "Low"}
-          </Button>} */}
+          
           {mode === "CONTINUITY" && <Text style={styles.continuity}>
-            {dmmReading?.continuity === true ? "● Connected" : dmmReading?.continuity === false ? "○ Open" : "Checking…"}
+            {audioEnabled && continuityActive ? "● Connected" : "○ Open"}
           </Text>}
         </View>
         {mode === "VOLTAGE" && <View style={styles.graphArea}>
@@ -146,25 +143,13 @@ export function DmmScreen() {
         {readingError && <Text style={styles.error}>{readingError}</Text>}
 
       </View>
-    </Screen>
+    </View>
     <Snackbar visible={saveNoticeVisible} onDismiss={() => setSaveNoticeVisible(false)} duration={2500}>
       {saveNotice}
     </Snackbar>
     <Snackbar visible={recordNoticeVisible} onDismiss={() => setRecordNoticeVisible(false)} duration={2500}>
       CSV recording — coming soon
     </Snackbar>
-    {/* <DcVoltageSettings
-      visible={voltageSettingsVisible}
-      onDismiss={() => setVoltageSettingsVisible(false)}
-      averaging={averaging}
-      onAveragingChange={(value) =>
-        setDmmPreferences({ averaging: value })
-      }
-      sensitivity={sensitivity}
-      onSensitivityChange={(value) =>
-        setDmmPreferences({ sensitivity: value })
-      }
-    /> */}
   </>;
 }
 
@@ -247,15 +232,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3, borderRadius: 9, backgroundColor: "#C62828", alignItems: "center",
     justifyContent: "center", zIndex: 1 },
   savedBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700", lineHeight: 13 },
-  screenContent: { paddingBottom: 0, gap: 0 },
-  screenFooter: { paddingHorizontal: 0, paddingVertical: 0, backgroundColor: c.darkTeal },
+  screen: { flex: 1, backgroundColor: c.surface, paddingHorizontal: 16 },
   content: { flex: 1, minHeight: 0, paddingTop: 4, paddingBottom: 4, gap: 8 },
   // The reading and graph share the available height; no screen-level scrolling.
   readout: { flex: 0.65, minHeight: 80, justifyContent: "center", alignItems: "center", position: "relative" },
   readingRow: { width: "100%", flexDirection: "row", justifyContent: "center", alignItems: "baseline", paddingHorizontal: 12, position: "relative" },
   readingValue: { fontSize: 58, lineHeight: 70, fontWeight: "500", fontVariant: ["tabular-nums"], color: c.text, maxWidth: "78%" },
   readingUnit: { fontSize: 24, color: c.darkTeal, marginLeft: 8, fontWeight: "600" },
-  save: { position: "absolute", right: 4, top: "50%", marginTop: -24, margin: 0 },
+  save: { position: "absolute", right: 4, top: "50%", marginTop: -24, margin: 0, backgroundColor: "#FFF0E8" },
   continuity: { color: c.mutedText, marginTop: 8 },
   graphArea: { flex: 1.6, minHeight: 0, width: "100%" },
   recordRow: { flexDirection: "row", justifyContent: "flex-end" },
