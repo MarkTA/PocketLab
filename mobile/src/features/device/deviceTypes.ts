@@ -23,7 +23,7 @@ export type DmmReading = {
   value: number | null;
   unit: "OHM" | "V";
   overload: boolean;
-  /** True only when the firmware continuity buzzer threshold is active. */
+  /** Firmware-reported continuity state (independent of audio). */
   continuity?: boolean;
 };
 
@@ -33,6 +33,7 @@ export type DeviceContextValue = {
   deviceInfo: PocketLabInfo | null;
   capabilities: PocketLabCapabilities | null;
 
+  continuityActive: boolean;
   dmmReading: DmmReading | null;
   requestDmmReading: () => Promise<DmmReading>;
 

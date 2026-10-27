@@ -96,6 +96,14 @@ class BleDiagnostic {
 
   private readonly responseListeners = new Set<(response: string) => void>();
 
+  // Unsolicited firmware events must never resolve a command request.
+  private readonly continuityListeners = new Set<(active: boolean) => void>();
+
+  public onContinuityChanged(listener: (active: boolean) => void): () => void {
+    this.continuityListeners.add(listener);
+    return () => { this.continuityListeners.delete(listener); };
+  }
+
   constructor() {
     this.manager = new BleManager();
   }
@@ -490,6 +498,14 @@ class BleDiagnostic {
 
         //console.log(`[BLE] Response received: "${response}"`);
 
+        if (response === "CONTINUITY=ON" || response === "CONTINUITY=OFF") {
+          const active = response === "CONTINUITY=ON";
+          for (const listener of this.continuityListeners) {
+            listener(active);
+          }
+          return;
+        }
+
         for (const listener of this.responseListeners) {
           listener(response);
         }
@@ -513,34 +529,20 @@ class BleDiagnostic {
   // ---------------------------------------------------------------------------
 
   public async writeCommand(command: string): Promise<void> {
-    // const device = this.requireConnectedDevice();
-
+    const device = this.requireConnectedDevice();
     const normalizedCommand = command.trim();
 
     if (!normalizedCommand) {
       throw new Error("Cannot send an empty PocketLab command.");
     }
 
-    // const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
+    const encodedValue = Buffer.from(normalizedCommand, "utf8").toString("base64");
 
-    // console.log("[BLE] Writing PocketLab command:", {
-    //   command: normalizedCommand,
-    //   serviceUUID: POCKETLAB_SERVICE_UUID,
-    //   characteristicUUID: COMMAND_RX_UUID,
-    //   encodedValue,
-    // });
-
-    // const result = await device.writeCharacteristicWithResponseForService(
-    //   POCKETLAB_SERVICE_UUID,
-    //   COMMAND_RX_UUID,
-    //   encodedValue
-    // );
-
-    // console.log("[BLE] Command write accepted:", {
-    //   serviceUUID: result.serviceUUID,
-    //   characteristicUUID: result.uuid,
-    //   value: result.value,
-    // });
+    await device.writeCharacteristicWithResponseForService(
+      POCKETLAB_SERVICE_UUID,
+      COMMAND_RX_UUID,
+      encodedValue
+    );
   }
 
   /**
@@ -727,6 +729,7 @@ class BleDiagnostic {
     this.stopResponseMonitor();
 
     this.responseListeners.clear();
+    this.continuityListeners.clear();
     this.connectionGeneration += 1;
     this.connectedDevice = null;
 
