@@ -35,13 +35,10 @@ export function DmmModeFooter({ mode, disabled, onModeChange }: Props) {
               disabled && styles.disabled,
             ]}
           >
-            <View style={styles.tabLabel}>
-              <Icon source={item.icon} size={18} color={selected ? c.darkTeal : c.mutedText} />
-              <Text style={[styles.text, { color: selected ? c.darkTeal : c.mutedText }]}>
-                {item.label}
-              </Text>
-            </View>
-            {selected && <View style={styles.indicator} />}
+            <Icon source={item.icon} size={23} color={selected ? c.darkTeal : c.mutedText} />
+            <Text style={[styles.text, { color: selected ? c.darkTeal : c.mutedText }]}>
+              {item.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -52,29 +49,19 @@ export function DmmModeFooter({ mode, disabled, onModeChange }: Props) {
 const styles = StyleSheet.create({
   group: {
     flexDirection: "row",
-    backgroundColor: c.background,
-    borderRadius: 12,
-    overflow: "hidden",
+    backgroundColor: c.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: c.mutedText,
   },
   tab: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 62,
     justifyContent: "center",
     alignItems: "center",
+    gap: 3,
   },
-  selected: { backgroundColor: "#E9F2E3" },
+  selected: { backgroundColor: "#E7F2F4" },
   pressed: { opacity: 0.75 },
   disabled: { opacity: 0.5 },
-  tabLabel: { flexDirection: "row", alignItems: "center", gap: 4 },
   text: { fontSize: 12, fontWeight: "600" },
-  indicator: {
-    position: "absolute",
-    bottom: 0,
-    left: 12,
-    right: 12,
-    height: 3,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-    backgroundColor: c.orange,
-  },
 });
