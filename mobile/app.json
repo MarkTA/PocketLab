@@ -45,7 +45,8 @@
       "expo-image",
       "expo-status-bar",
       "expo-web-browser",
-      "react-native-audio-api"
+      "react-native-audio-api",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,

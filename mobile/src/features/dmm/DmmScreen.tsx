@@ -13,7 +13,8 @@ import { InteractiveVoltageGraph } from "./components/InteractiveVoltageGraph";
 import { averageRecentVoltage, formatDcVoltage } from "./graph/dcVoltageDisplay";
 import { useContinuousDmm } from "./hooks/useContinuousDmm";
 import { useDmmPreferences } from "./preferences/DmmPreferencesProvider";
-import { saveMeasurement } from "./storage/savedMeasurements";
+import { getActiveMeasurementSet, saveMeasurement, type SavedMeasurement } from "./storage/savedMeasurements";
+import { MeasurementSetPicker } from "../log/MeasurementSetPicker";
 
 export function DmmScreen() {
   const {
@@ -28,6 +29,9 @@ export function DmmScreen() {
     useAppShell();
   const [saveNoticeVisible, setSaveNoticeVisible] = useState(false);
   const [saveNotice, setSaveNotice] = useState("");
+  const [latestSaved, setLatestSaved] = useState<SavedMeasurement | null>(null);
+  const [setPickerVisible, setSetPickerVisible] = useState(false);
+  const [saveNoticeKey, setSaveNoticeKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [inspectedPoint, setInspectedPoint] = useState<{
     timestamp: number;
@@ -138,7 +142,7 @@ export function DmmScreen() {
     if (measuredAt == null) return;
     setSaving(true);
     try {
-      await saveMeasurement({
+      const saved = await saveMeasurement({
         kind: mode === "RESISTANCE" ? "resistance" : "voltage",
         value,
         unit: mode === "RESISTANCE" ? "Ω" : "V",
@@ -151,12 +155,16 @@ export function DmmScreen() {
       });
       // Refresh from persisted storage rather than assuming a successful write adds exactly one.
       await refreshSavedCount();
-      setSaveNotice(isCursor ? "Selected graph reading saved" : "Measurement saved");
+      const destination = await getActiveMeasurementSet();
+      setLatestSaved(saved);
+      setSaveNotice(`${value.toPrecision(6)} ${saved.unit} saved to ${destination.name}`);
     } catch {
+      setLatestSaved(null);
       setSaveNotice("Unable to save measurement");
     } finally {
       setSaving(false);
       setSaveNoticeVisible(true);
+      setSaveNoticeKey(key => key + 1);
     }
   };
 
@@ -283,12 +291,20 @@ export function DmmScreen() {
         )}
       </View>
       <Snackbar
+        key={saveNoticeKey}
         visible={saveNoticeVisible}
         onDismiss={() => setSaveNoticeVisible(false)}
-        duration={2500}
+        duration={4000}
+        action={latestSaved ? { label: "Change", onPress: () => { setSaveNoticeVisible(false); setSetPickerVisible(true); } } : undefined}
       >
         {saveNotice}
       </Snackbar>
+      <MeasurementSetPicker
+        visible={setPickerVisible}
+        measurement={latestSaved}
+        onDismiss={() => setSetPickerVisible(false)}
+        onMoved={(set) => { setSetPickerVisible(false); setSaveNoticeVisible(false); if (latestSaved) setSaveNotice(`${latestSaved.value.toPrecision(6)} ${latestSaved.unit} saved to ${set.name}`); }}
+      />
       <Snackbar
         visible={recordNoticeVisible}
         onDismiss={() => setRecordNoticeVisible(false)}

@@ -1,4 +1,6 @@
 import { Stack } from "expo-router";
+import { useEffect } from "react";
+import { initializeMeasurementStorage } from "@/features/dmm/storage/savedMeasurements";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -10,6 +12,11 @@ import { ContinuityAudioHost } from "@/features/dmm/components/ContinuityAudioHo
 import { paperTheme } from "@/themes/theme";
 
 export default function RootLayout() {
+  useEffect(() => {
+    void initializeMeasurementStorage().catch(error => {
+      console.error("Measurement storage initialization failed", error);
+    });
+  }, []);
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
