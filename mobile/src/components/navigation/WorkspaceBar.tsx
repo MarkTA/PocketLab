@@ -1,6 +1,6 @@
-import { StyleSheet, View, Pressable } from "react-native";
-import { Icon, Text } from "react-native-paper";
 import { pocketLabColors as c } from "@/themes/theme";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Icon, Text } from "react-native-paper";
 
 type Workspace = "tools" | "measure" | "log";
 
@@ -28,7 +28,10 @@ export function WorkspaceBar({
   const vertical = orientation === "vertical";
 
   return (
-    <View style={[styles.bar, vertical ? styles.rail : styles.bottomBar]} accessibilityRole="tablist">
+    <View
+      style={[styles.bar, vertical ? styles.rail : styles.bottomBar]}
+      accessibilityRole="tablist"
+    >
       {workspaces.map(({ id, label, icon }) => {
         const selected = id === active;
         return (
@@ -37,8 +40,14 @@ export function WorkspaceBar({
             accessibilityRole="tab"
             accessibilityLabel={`${label} workspace`}
             accessibilityState={{ selected }}
-            onPress={() => { if (!selected) onSelect(id); }}
-            style={[styles.tab, vertical ? styles.railTab : styles.bottomTab, selected && styles.selected]}
+            onPress={() => {
+              if (!selected) onSelect(id);
+            }}
+            style={[
+              styles.tab,
+              vertical ? styles.railTab : styles.bottomTab,
+              selected && styles.selected,
+            ]}
           >
             <Icon source={icon} size={23} color={selected ? c.darkTeal : c.mutedText} />
             <Text style={[styles.label, { color: selected ? c.darkTeal : c.mutedText }]}>
@@ -72,5 +81,5 @@ const styles = StyleSheet.create({
   bottomTab: { flex: 1, minHeight: 62 },
   railTab: { minHeight: 70, paddingVertical: 7 },
   selected: { backgroundColor: "#E7F2F4" },
-  label: { fontSize: 12, fontWeight: "600" },
+  label: { fontSize: 12, fontWeight: "800" },
 });

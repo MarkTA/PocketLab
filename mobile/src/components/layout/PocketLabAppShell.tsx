@@ -15,7 +15,6 @@ import { findCategory, findTool } from "@/features/calculator/catalog";
 import { AppShellContextProvider } from "@/features/appShell/AppShellContext";
 import { useSettingsAdapter } from "@/features/settings/useSettingsAdapter";
 import { WorkspaceBar } from "@/components/navigation/WorkspaceBar";
-import { InstrumentSelector } from "@/components/navigation/InstrumentSelector";
 
 function routePresentation(pathname: string) {
   const path = decodeURIComponent(pathname);
@@ -148,6 +147,9 @@ export function PocketLabAppShell({ children }: { children: ReactNode }) {
       <SafeAreaView style={styles.root} edges={["top", "bottom", "left", "right"]}>
         <PocketLabHeader
           subtitle={location.subtitle}
+          instrument={isMeasureRoute ? activeInstrument : undefined}
+          generatorAvailable={generatorAvailable}
+          onSelectInstrument={openInstrument}
           compact={isLandscape}
           childTitle={location.child}
           onBack={goBackInCalculator}
@@ -171,13 +173,6 @@ export function PocketLabAppShell({ children }: { children: ReactNode }) {
           <View style={styles.mainColumn}>
             {!isLandscape && location.child ? (
               <FeatureSubheader title={location.child} onBack={goBackInCalculator} />
-            ) : null}
-            {isMeasureRoute ? (
-              <InstrumentSelector
-                active={activeInstrument}
-                generatorAvailable={generatorAvailable}
-                onSelect={openInstrument}
-              />
             ) : null}
             <View style={styles.content}>{children}</View>
           </View>
