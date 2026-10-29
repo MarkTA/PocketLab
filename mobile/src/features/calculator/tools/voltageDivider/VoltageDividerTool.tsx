@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Keyboard, Modal, ScrollView, StyleSheet, View } from "react-native";
+import { Keyboard, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Button, SegmentedButtons, Text, TextInput } from "react-native-paper";
 import { pocketLabColors as c } from "@/themes/theme";
 import { useCalculatorPreferences } from "../../preferences/calculatorPreferences";
@@ -42,7 +42,7 @@ function VoltageDividerToolContent() {
   const [mode, setMode] = useState<DividerMode>("unloaded");
   const [entries, setEntries] = useState<Entries>({});
   const [order, setOrder] = useState<VariableId[]>([]);
-  const [preferredCalculated, setPreferredCalculated] = useState<VariableId | null>(null);
+  const [preferredCalculated, setPreferredCalculated] = useState<VariableId | null>("vout");
   const [editing, setEditing] = useState<VariableId | null>(null);
   const [editMode, setEditMode] = useState<"set" | "calculate">("set");
   const [draft, setDraft] = useState("");
@@ -86,7 +86,7 @@ function VoltageDividerToolContent() {
     setMode(next);
     setEntries({});
     setOrder([]);
-    setPreferredCalculated(null);
+    setPreferredCalculated("vout");
     setEditing(null);
   }
   function openEditor(id: VariableId) {
@@ -97,7 +97,7 @@ function VoltageDividerToolContent() {
     setUnit(defaultUnit.label);
     setDraft(current === undefined ? "" : String(Number((current / defaultUnit.factor).toPrecision(9))));
     setPendingMeasurement(null);
-    setEditMode(unknown === id && ready ? "calculate" : "set");
+    setEditMode(unknown === id ? "calculate" : "set");
     setError("");
     setEditing(id);
   }
@@ -105,11 +105,6 @@ function VoltageDividerToolContent() {
   function chooseCalculated() {
     if (!editing) return;
     const id = editing;
-    const remaining = ids.filter(candidate => candidate !== id && entries[candidate] !== undefined);
-    if (remaining.length < ids.length - 1) {
-      setError(`Set the other ${ids.length - 1} variables before calculating ${info[id].name}.`);
-      return;
-    }
     const nextEntries = { ...entries };
     delete nextEntries[id];
     setEntries(nextEntries);
@@ -129,7 +124,7 @@ function VoltageDividerToolContent() {
     }
     setEntries(next);
     setOrder(nextOrder);
-    setPreferredCalculated(null);
+    setPreferredCalculated(id === preferredCalculated ? null : preferredCalculated);
     Keyboard.dismiss();
     closeEditor();
   }
@@ -152,23 +147,40 @@ function VoltageDividerToolContent() {
   const filtered = saved.filter(item => editing && item.kind === info[editing].kind && Number.isFinite(item.value));
   const units = editing && info[editing].kind === "voltage" ? voltageUnits : resistanceUnits;
 
-  return <View style={styles.card}>
-    <SegmentedButtons value={mode} onValueChange={v => changeMode(v as DividerMode)} buttons={[
-      { value: "unloaded", label: "Unloaded" }, { value: "loaded", label: "Loaded" },
-    ]} />
-    <InteractiveDividerEquation mode={mode} values={displayValues} onVariablePress={openEditor} />
-    <Text style={styles.hint}>Tap a resistor or voltage terminal to set a value or calculate it.</Text>
-    <VoltageDividerSchematic mode={mode} values={displayValues} states={states}
-      showGrid={false} onVariablePress={openEditor} />
-    <View style={styles.legend}>
-      <Text style={{ color: c.darkTeal }}>● Set value</Text>
-      <Text style={{ color: "#2563EB" }}>● Saved measurement</Text>
-      <Text style={styles.hint}>● Calculated</Text>
+  const target: VariableId = unknown ?? preferredCalculated ?? "vout";
+  return <View style={styles.screen}>
+    <View style={styles.modeBar} accessibilityRole="tablist">
+      {(["unloaded", "loaded"] as const).map(variant => {
+        const selected = mode === variant;
+        return <Pressable key={variant} accessibilityRole="tab"
+          accessibilityState={{ selected }} onPress={() => changeMode(variant)}
+          style={({ pressed }) => [styles.modeTab, selected && styles.modeTabSelected, pressed && styles.modeTabPressed]}>
+          <Text style={[styles.modeTabLabel, { color: selected ? c.darkTeal : c.mutedText }]}>
+            {variant === "unloaded" ? "Unloaded" : "Loaded"}
+          </Text>
+        </Pressable>;
+      })}
     </View>
-    {calculation?.ok === false && <Text style={styles.error}>{calculation.error}</Text>}
-    {!ready && <Text style={styles.hint}>Set {ids.length - 1 - order.length} more value(s) to solve the remaining variable.</Text>}
-    {ready && calculation?.ok && unknown && <Text variant="titleMedium">Calculated {info[unknown].name}: {formatted(unknown, calculation.value, preferences)}</Text>}
-    <Button onPress={() => { setEntries({}); setOrder([]); setPreferredCalculated(null); }}>Reset values</Button>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
+      showsVerticalScrollIndicator
+      overScrollMode="always"
+    >
+    <Text style={styles.instruction}>Tap to edit</Text>
+    <VoltageDividerSchematic mode={mode} values={displayValues} states={{ ...states, [target]: "calculated", ...(target === "vout" ? { voutTap: "calculated" } : {}) }}
+      showGrid={false} onVariablePress={openEditor} />
+    <InteractiveDividerEquation mode={mode} calculated={target} values={displayValues} onVariablePress={openEditor} />
+    <View style={styles.resultArea}>
+      {calculation?.ok && unknown
+        ? <Text style={styles.calculatedResult}>{info[unknown].name} = {formatted(unknown, calculation.value, preferences)}</Text>
+        : <Text style={styles.pendingResult}>{info[target].name} = —</Text>}
+      {calculation?.ok === false && <Text style={styles.error}>{calculation.error}</Text>}
+    </View>
+    <Button compact mode="text" icon="refresh" onPress={() => { setEntries({}); setOrder([]); setPreferredCalculated("vout"); }}>Reset</Button>
+    </ScrollView>
     <Modal visible={editing !== null} transparent animationType="fade" onRequestClose={closeEditor}>
       <View style={styles.backdrop}>
         <View style={styles.modalCard}>
@@ -245,15 +257,23 @@ function VoltageDividerToolContent() {
         </View>
       </View>
     </Modal>
-    <Text style={styles.hint}>Ideal DC divider. Check resistor ratings, tolerances, and loading before building.</Text>
   </View>;
 }
 
 const styles = StyleSheet.create({
-  settingsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: -12 },
-  card: { padding: 16, backgroundColor: c.surface, gap: 12, borderRadius: 12 },
+  screen: { flex: 1, backgroundColor: c.surface },
+  modeBar: { flexDirection: "row", backgroundColor: c.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.mutedText },
+  modeTab: { flex: 1, height: 46, justifyContent: "center", alignItems: "center" },
+  modeTabSelected: { backgroundColor: "#E7F2F4" },
+  modeTabPressed: { opacity: 0.75 },
+  modeTabLabel: { fontSize: 14, fontWeight: "600" },
+  scroll: { flex: 1, minHeight: 0 },
+  content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 120, gap: 4 },
+  instruction: { alignSelf: "flex-end", textAlign: "right", color: c.mutedText, fontSize: 11, fontStyle: "italic", marginRight: 4 },
+  resultArea: { alignItems: "center", minHeight: 54, justifyContent: "center", gap: 6 },
+  calculatedResult: { color: c.orange, fontSize: 29, fontWeight: "600", textAlign: "center" },
+  pendingResult: { color: c.mutedText, fontSize: 25, textAlign: "center" },
   hint: { color: c.mutedText },
-  legend: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   error: { color: "#B42318" },
   backdrop: { flex: 1, justifyContent: "center", padding: 20, backgroundColor: "rgba(0,0,0,0.5)" },
   modalCard: { backgroundColor: c.surface, padding: 18, borderRadius: 14, gap: 14 },

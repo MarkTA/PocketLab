@@ -7,7 +7,7 @@ import { pocketLabColors } from "@/themes/theme";
 // import { useCalculatorCatalog } from "../CalculatorCatalogProvider";
 import {
   // findCategory,
-  findTool
+  findTool,
 } from "../catalog";
 import { VoltageDividerTool } from "../tools/voltageDivider/VoltageDividerTool";
 
@@ -15,6 +15,14 @@ export function ToolScreen({ slug }: { slug: string | undefined }) {
   const tool = findTool(slug);
   // const category = findCategory(tool?.categorySlug);
   // const { isFavorite, toggleFavorite } = useCalculatorCatalog();
+
+  if (tool?.slug === "voltage-divider") {
+    return (
+      <View style={styles.dividerSafeArea}>
+        <VoltageDividerTool />
+      </View>
+    );
+  }
 
   return (
     <>
@@ -55,14 +63,22 @@ export function ToolScreen({ slug }: { slug: string | undefined }) {
                 </Button>
               </View> */}
 
-              {tool.slug === "voltage-divider" ? <VoltageDividerTool /> : <View style={styles.placeholder}>
-                <Icon source="wrench-clock" size={32} color={pocketLabColors.mutedText} />
-                <Text variant="titleMedium">Workspace route ready</Text>
-                <Text variant="bodyMedium" style={styles.placeholderText}>
-                  Inputs, equations, results, and validation for this tool will be added
-                  on top of this shared calculator workspace.
-                </Text>
-              </View>}
+              {tool.slug === "voltage-divider" ? (
+                <VoltageDividerTool />
+              ) : (
+                <View style={styles.placeholder}>
+                  <Icon
+                    source="wrench-clock"
+                    size={32}
+                    color={pocketLabColors.mutedText}
+                  />
+                  <Text variant="titleMedium">Workspace route ready</Text>
+                  <Text variant="bodyMedium" style={styles.placeholderText}>
+                    Inputs, equations, results, and validation for this tool will be added
+                    on top of this shared calculator workspace.
+                  </Text>
+                </View>
+              )}
             </>
           ) : (
             <Text variant="bodyLarge">This calculator tool could not be found.</Text>
@@ -74,6 +90,7 @@ export function ToolScreen({ slug }: { slug: string | undefined }) {
 }
 
 const styles = StyleSheet.create({
+  dividerSafeArea: { flex: 1, minHeight: 0, backgroundColor: pocketLabColors.surface },
   safeArea: {
     flex: 1,
     backgroundColor: pocketLabColors.background,

@@ -37,7 +37,6 @@ export function SchematicCanvas({
   showNumbers = false,
 }: Props) {
   const [width, setWidth] = useState(0);
-  const [selectedCell, setSelectedCell] = useState<number | null>(null);
   const rowCount = grid?.rows ?? rows ?? 5;
   const columnCount = grid?.columns ?? columns ?? 5;
   const validGrid = Number.isInteger(rowCount) && rowCount > 0 && Number.isInteger(columnCount) && columnCount > 0;
@@ -54,17 +53,9 @@ export function SchematicCanvas({
   }
 
   const handleCellPress = (cell: number) => {
-    setSelectedCell(cell);
     onCellPress?.(cell);
     const element = cellElements.get(cell);
     if (element && "id" in element && element.id) onElementPress?.(element.id);
-  };
-
-  const describe = (cell: number) => {
-    const element = cellElements.get(cell);
-    if (!element) return "empty";
-    if ("id" in element && element.id) return `${element.type} · ${element.id}`;
-    return element.type;
   };
 
   return (
@@ -74,11 +65,6 @@ export function SchematicCanvas({
     }}>
       {width > 0 && <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         <Rect width={width} height={height} fill="white" />
-        {selectedCell !== null && selectedCell < count && (
-          <Rect x={(selectedCell % columnCount) * cellSize}
-            y={Math.floor(selectedCell / columnCount) * cellSize}
-            width={cellSize} height={cellSize} fill="#D7F1EC" />
-        )}
         {showGrid && <G>
           <Rect width={width} height={height} fill="none" stroke="#999" strokeWidth={0.5} />
           {Array.from({ length: columnCount - 1 }, (_, i) => <Line key={`v-${i}`}
@@ -102,7 +88,7 @@ export function SchematicCanvas({
           const key = "id" in element && element.id ? element.id : `${element.type}-${element.cell}-${index}`;
           const value = "id" in element && element.id ? values?.[element.id] : undefined;
           const state = "id" in element && element.id ? states?.[element.id] : undefined;
-          const color = state === "measured" ? "#2865AD" : state === "calculated" ? "#7B8491" : "#008577";
+          const color = state === "measured" ? "#2865AD" : state === "calculated" ? "#d65924" : "#008577";
           return (
             <G key={key} transform={`translate(${col * cellSize}, ${row * cellSize})`}>
               {element.type === "resistor" && <ResistorSymbol cellSize={cellSize}
@@ -126,10 +112,6 @@ export function SchematicCanvas({
           width={cellSize} height={cellSize} fill="transparent"
           onPress={() => handleCellPress(cell)} />)}
       </Svg>}
-      <Text style={{ textAlign: "center", marginVertical: 8, color: "#008577" }}>
-        {selectedCell === null ? "Tap a cell to inspect its element" :
-          `Tapped cell: ${selectedCell} · ${describe(selectedCell)}`}
-      </Text>
     </View>
   );
 }
