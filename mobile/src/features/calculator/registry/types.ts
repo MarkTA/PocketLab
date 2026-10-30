@@ -29,7 +29,26 @@ export type CollectionToolConfig = {
   defaultKind: CollectionKind;
   defaultConnection: "series" | "parallel";
 };
+/** Resolved presentation for the currently selected tool controls. */
+export type ToolPresentation = {
+  variables: Record<string, ToolVariable>;
+  mode: ToolModeConfig;
+  /** IDs participating in the selected equation. */
+  activeVariables: string[];
+  expression?: Expression;
+  equationLabels?: EquationConfig["labels"];
+  /** Maps renderer IDs to the corresponding stable state IDs. */
+  displayIds?: Record<string, string>;
+};
+export type ToolGenerationContext = {
+  mode: string;
+  variant?: string;
+  parameters: Readonly<Record<string, string>>;
+};
 export type ToolConfig = {
+  /** Dynamic tools generate the same presentation consumed by the shared view. */
+  generate?: (context: ToolGenerationContext) => ToolPresentation;
+
   collection?: CollectionToolConfig; // Legacy calculation metadata; generation moves in stage 2.
   /** Discrete settings rendered by the shared controller. */
   parameters?: ToolSelectConfig[];

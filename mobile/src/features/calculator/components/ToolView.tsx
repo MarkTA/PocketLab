@@ -11,17 +11,9 @@ import { formatQuantity } from "../preferences/engineeringFormat";
 import type {
   CollectionKind,
   ToolConfig,
-  ToolModeConfig,
-  ToolVariable,
 } from "../registry/types";
 import { equivalentValue } from "../tools/seriesParallel/calculations";
-import {
-  collectionEquationLabels,
-  collectionId,
-  collectionSymbol,
-  generateCollectionEquation,
-  generateCollectionSchematic,
-} from "../tools/seriesParallel/generators";
+
 import { InteractiveEquation } from "./InteractiveEquation";
 import { SchematicView } from "./SchematicView";
 import { ToolSelectInput } from "./ToolSelectInput";
@@ -128,41 +120,16 @@ function EquationToolView({ config }: { config: ToolConfig }) {
   ) ?? configuredMode.variants?.find(
     (item) => item.id === configuredMode.defaultVariant
   ) ?? configuredMode.variants?.[0];
-  // Stage 2 will move collection generation to the tool configuration.
+  // Every tool supplies a resolved presentation; static tools use their mode as-is.
+  // Stage 3 will also move collection solving and input policy behind tool config.
+  const presentation = config.generate?.({ mode, variant: configuredVariant?.id, parameters });
+  const variables = presentation?.variables ?? config.variables;
+  const activeMode = presentation?.mode ?? configuredMode;
+  const variant = configuredVariant;
+  const ids = presentation?.activeVariables ?? (variant?.variables ?? activeMode.variables);
   const componentKind = (configuredVariant?.id ?? collection?.defaultKind ?? "resistance") as CollectionKind;
   const componentCount = Number(parameters.componentCount ?? 3);
   const connection = mode === "parallel" ? "parallel" : "series";
-  const activeKind = collection?.kindOptions.find((item) => item.id === componentKind);
-  const collectionVariables: Record<string, ToolVariable> = (() => {
-    if (!collection || !activeKind) return {};
-    const base = collectionSymbol(componentKind);
-    return Object.fromEntries(
-      Array.from({ length: componentCount }, (_, index) => {
-        const id = `${componentKind}:${collectionId(index)}`;
-        return [
-          id,
-          {
-            name: `${base}${index + 1}`,
-            title: `${activeKind.label.slice(0, -1)} ${index + 1}`,
-            kind: componentKind,
-            defaultUnit: activeKind.unit,
-            mathLabel: { base, sub: String(index + 1) },
-          },
-        ];
-      })
-    );
-  })();
-  const variables = isCollection ? collectionVariables : config.variables;
-  const collectionMode: ToolModeConfig | null = isCollection
-    ? {
-        ...configuredMode,
-        variables: Object.keys(collectionVariables),
-        schematic: generateCollectionSchematic(componentKind, connection, componentCount),
-      }
-    : null;
-  const activeMode = collectionMode ?? configuredMode;
-  const variant = configuredVariant;
-  const ids = isCollection ? activeMode.variables : (variant?.variables ?? activeMode.variables);
   const capacity =
     typeof config.independentInputs === "function"
       ? config.independentInputs(mode)
@@ -194,7 +161,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
   const canSolve = neededIds.every((id) => Number.isFinite(resolved[id]));
   const collectionValues = Array.from(
     { length: componentCount },
-    (_, index) => inputs[`${componentKind}:${collectionId(index)}`] ?? null
+    (_, index) => inputs[`${componentKind}:component-${index}`] ?? null
   );
   const collectionResult = isCollection
     ? equivalentValue(componentKind, connection, collectionValues)
@@ -241,32 +208,16 @@ function EquationToolView({ config }: { config: ToolConfig }) {
         : "empty";
   }
 
-  // The collection generator uses stable display ids; state uses kind-qualified ids
-  // so switching resistor/capacitor/inductor tabs preserves all three collections.
-  const schematicDisplayValues: Record<string, string> = isCollection
-    ? Object.fromEntries(
-        Array.from({ length: componentCount }, (_, i) => [
-          collectionId(i),
-          displayValues[`${componentKind}:${collectionId(i)}`],
-        ])
-      )
+  // Renderers may use concise aliases while state retains stable, namespaced IDs.
+  const displayIds = presentation?.displayIds;
+  const schematicDisplayValues: Record<string, string> = displayIds
+    ? Object.fromEntries(Object.entries(displayIds).map(([displayId, stateId]) => [displayId, displayValues[stateId]]))
     : displayValues;
-  const schematicDisplayStates: Record<
-    string,
-    "entered" | "measured" | "calculated" | "empty" | "inactive"
-  > = isCollection
-    ? Object.fromEntries(
-        Array.from({ length: componentCount }, (_, i) => [
-          collectionId(i),
-          schematicStates[`${componentKind}:${collectionId(i)}`],
-        ])
-      )
+  const schematicDisplayStates: Record<string, "entered" | "measured" | "calculated" | "empty" | "inactive"> = displayIds
+    ? Object.fromEntries(Object.entries(displayIds).map(([displayId, stateId]) => [displayId, schematicStates[stateId]]))
     : schematicStates;
-  const collectionLabels = isCollection
-    ? collectionEquationLabels(componentKind, componentCount)
-    : null;
   function mapVariableId(id: string) {
-    return isCollection && id !== "equivalent" ? `${componentKind}:${id}` : id;
+    return displayIds?.[id] ?? id;
   }
   function changeMode(next: string) {
     if (next === mode) return;
@@ -279,7 +230,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
     setEditing(null);
   }
   function openEditor(id: VariableId) {
-    if (isCollection && id === "equivalent") return;
+    if (id === "equivalent") return;
     id = mapVariableId(id);
     if (!ids.includes(id)) return;
     const current = values[id];
@@ -463,27 +414,23 @@ function EquationToolView({ config }: { config: ToolConfig }) {
           onVariablePress={openEditor}
         />
         <InteractiveEquation
-          key={`${mode}:${target}:${componentKind}:${componentCount}`}
-          expression={
-            isCollection
-              ? generateCollectionEquation(componentKind, connection, componentCount)
-              : (variant?.equations ?? activeMode.equations)[target]
-          }
+          key={`${mode}:${target}:${configuredVariant?.id ?? ""}:${JSON.stringify(parameters)}`}
+          expression={presentation?.expression ?? (variant?.equations ?? activeMode.equations)[target]}
           calculated={target}
           labels={
-            collectionLabels ??
+            presentation?.equationLabels ??
             Object.fromEntries(
               Object.entries(variables).map(([id, variable]) => [id, variable.mathLabel])
             )
           }
-          values={isCollection ? schematicDisplayValues : displayValues}
+          values={schematicDisplayValues}
           onVariablePress={openEditor}
         />
         <View style={styles.resultArea}>
           {calculation?.ok && !activeOrder.includes(target) ? (
             <Text style={styles.calculatedResult}>
               {isCollection
-                ? `${collectionSymbol(componentKind)}eq`
+                ? `${componentKind === "resistance" ? "R" : componentKind === "capacitance" ? "C" : "L"}eq`
                 : variables[target].name}{" "}
               ={" "}
               {isCollection
@@ -493,7 +440,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
           ) : (
             <Text style={styles.pendingResult}>
               {isCollection
-                ? `${collectionSymbol(componentKind)}eq`
+                ? `${componentKind === "resistance" ? "R" : componentKind === "capacitance" ? "C" : "L"}eq`
                 : variables[target].name}{" "}
               = —
             </Text>
