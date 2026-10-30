@@ -9,7 +9,7 @@ export type GridSize = { rows: number; columns: number };
 
 export type GridElement =
   | {
-      type: "resistor";
+      type: "resistor" | "capacitor" | "inductor";
       cell: number;
       id: string;
       label: string;

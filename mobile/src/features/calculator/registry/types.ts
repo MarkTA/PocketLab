@@ -1,7 +1,7 @@
 import type { ToolSelectConfig } from "../components/ToolSelectInput";
 import type { GridElement, GridSize } from "../schematic/grid";
 import type { Expression } from "./expression";
-export type VariableKind = "voltage" | "resistance" | "current" | "power";
+export type VariableKind = "voltage" | "resistance" | "current" | "power" | "capacitance" | "inductance";
 export type ToolVariable = { name: string; title: string; kind: VariableKind; defaultUnit: string; mathLabel: { base: string; sub: string } };
 export type SchematicConfig = { grid: GridSize; elements: GridElement[]; aliases?: Record<string, string> };
 export type EquationConfig = { labels: Record<string, { base: string; sub: string }> };
@@ -27,7 +27,7 @@ export type CollectionToolConfig = {
   defaultConnection: "series" | "parallel";
 };
 export type ToolConfig = {
-  collection?: CollectionToolConfig;
+  collection?: CollectionToolConfig; // Optional dynamically generated collection configuration.
   info?: ToolInfo;
   slug: string; title: string; defaultMode: string; defaultSolveFor: string;
   variables: Record<string, ToolVariable>;

@@ -6,6 +6,7 @@ import { BatterySymbol } from "./symbols/BatterySymbol";
 import { CurrentArrowSymbol } from "./symbols/CurrentArrowSymbol";
 import { GroundSymbol } from "./symbols/GroundSymbol";
 import { ResistorSymbol } from "./symbols/ResistorSymbol";
+import { PassiveSymbol } from "./symbols/PassiveSymbol";
 import { TerminalSymbol } from "./symbols/TerminalSymbol";
 import { WireSymbol } from "./symbols/WireSymbol";
 
@@ -93,6 +94,7 @@ export function SchematicCanvas({
           const color = state === "inactive" ? "#a4adb4" : state === "calculated" ? "#d65924" : state === "measured" ? "#2865AD" : "#174c55";
           return (
             <G key={key} transform={`translate(${col * cellSize}, ${row * cellSize})`}>
+              {(element.type === "capacitor" || element.type === "inductor") && <PassiveSymbol type={element.type} cellSize={cellSize} name={element.label} orientation={element.orientation} value={value} color={color} />}
               {element.type === "resistor" && <ResistorSymbol cellSize={cellSize}
                 name={element.label} orientation={element.orientation} value={value} color={color} />}
               {element.type === "terminal" && <TerminalSymbol cellSize={cellSize}
