@@ -96,11 +96,8 @@ export function ToolView({ config }: { config: ToolConfig }) {
 function EquationToolView({ config }: { config: ToolConfig }) {
   const { preferences } = useCalculatorPreferences();
   const [mode, setMode] = useState<string>(config.defaultMode);
-  const [componentKind, setComponentKind] = useState<CollectionKind>(
-    config.collection?.defaultKind ?? "resistance"
-  );
-  const [componentCount, setComponentCount] = useState(
-    Number(config.collection?.count.defaultValue ?? 3)
+  const [parameters, setParameters] = useState<Record<string, string>>(() =>
+    Object.fromEntries((config.parameters ?? []).map((parameter) => [parameter.id, parameter.defaultValue]))
   );
   const [equationVariants, setEquationVariants] = useState<Record<string, string>>({});
   const [entries, setEntries] = useState<Entries>({});
@@ -124,9 +121,19 @@ function EquationToolView({ config }: { config: ToolConfig }) {
 
   const collection = config.collection;
   const isCollection = !!collection;
+  const configuredMode = config.modes.find((item) => item.id === mode) ?? config.modes[0];
+  const variantKey = configuredMode.variantGroup ?? mode;
+  const configuredVariant = configuredMode.variants?.find(
+    (item) => item.id === equationVariants[variantKey]
+  ) ?? configuredMode.variants?.find(
+    (item) => item.id === configuredMode.defaultVariant
+  ) ?? configuredMode.variants?.[0];
+  // Stage 2 will move collection generation to the tool configuration.
+  const componentKind = (configuredVariant?.id ?? collection?.defaultKind ?? "resistance") as CollectionKind;
+  const componentCount = Number(parameters.componentCount ?? 3);
   const connection = mode === "parallel" ? "parallel" : "series";
   const activeKind = collection?.kindOptions.find((item) => item.id === componentKind);
-  const collectionVariables = useMemo<Record<string, ToolVariable>>(() => {
+  const collectionVariables: Record<string, ToolVariable> = (() => {
     if (!collection || !activeKind) return {};
     const base = collectionSymbol(componentKind);
     return Object.fromEntries(
@@ -144,23 +151,18 @@ function EquationToolView({ config }: { config: ToolConfig }) {
         ];
       })
     );
-  }, [collection, activeKind, componentKind, componentCount]);
+  })();
   const variables = isCollection ? collectionVariables : config.variables;
   const collectionMode: ToolModeConfig | null = isCollection
     ? {
-        id: mode,
-        label: mode === "parallel" ? "Parallel" : "Series",
+        ...configuredMode,
         variables: Object.keys(collectionVariables),
         schematic: generateCollectionSchematic(componentKind, connection, componentCount),
-        equations: {},
       }
     : null;
-  const activeMode =
-    collectionMode ?? config.modes.find((item) => item.id === mode) ?? config.modes[0];
-  const variant =
-    activeMode.variants?.find((item) => item.id === equationVariants[mode]) ??
-    activeMode.variants?.[0];
-  const ids = variant?.variables ?? activeMode.variables;
+  const activeMode = collectionMode ?? configuredMode;
+  const variant = configuredVariant;
+  const ids = isCollection ? activeMode.variables : (variant?.variables ?? activeMode.variables);
   const capacity =
     typeof config.independentInputs === "function"
       ? config.independentInputs(mode)
@@ -272,7 +274,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
     // Inputs are circuit-wide, not owned by a mode. An absent target is chosen
     // in the new mode without clearing values saved for other modes.
     setPreferredCalculated(
-      next === "power" && config.variables.power ? "power" : config.defaultSolveFor
+      config.modes.find((item) => item.id === next)?.preferredSolveFor ?? config.defaultSolveFor
     );
     setEditing(null);
   }
@@ -390,13 +392,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
   return (
     <View style={styles.screen}>
       <View style={styles.modeBar} accessibilityRole="tablist">
-        {(isCollection
-          ? [
-              { id: "series", label: "Series" },
-              { id: "parallel", label: "Parallel" },
-            ]
-          : config.modes
-        ).map((variant) => {
+        {config.modes.map((variant) => {
           const selected = mode === variant.id;
           return (
             <Pressable
@@ -422,31 +418,21 @@ function EquationToolView({ config }: { config: ToolConfig }) {
           );
         })}
       </View>
-      {collection && (
+      {configuredMode.variants && configuredMode.variants.length > 0 && (
         <ToolVariantTabs
-          variants={collection.kindOptions}
-          selectedId={componentKind}
-          onSelect={(id) => {
-            setComponentKind(id as CollectionKind);
-            setEditing(null);
-          }}
-        />
-      )}
-      {activeMode.variants && activeMode.variants.length > 0 && (
-        <ToolVariantTabs
-          variants={activeMode.variants}
-          selectedId={variant?.id ?? activeMode.variants[0].id}
+          variants={configuredMode.variants}
+          selectedId={variant?.id ?? configuredMode.variants[0].id}
           onSelect={(id) => {
             if (id === variant?.id) return;
-            // Variant changes only presentation; entered circuit values persist.
-            setEquationVariants((previous) => ({ ...previous, [mode]: id }));
-            setPreferredCalculated(
-              activeMode.variants
-                ?.find((item) => item.id === id)
-                ?.variables.includes("power")
-                ? "power"
-                : config.defaultSolveFor
-            );
+            // Keep inputs intact: navigation changes presentation, not stored data.
+            setEquationVariants((previous) => ({ ...previous, [variantKey]: id }));
+            const selected = configuredMode.variants?.find((item) => item.id === id);
+            if (selected?.preferredSolveFor ?? configuredMode.preferredSolveFor) {
+              setPreferredCalculated(
+                selected?.preferredSolveFor ?? configuredMode.preferredSolveFor ?? config.defaultSolveFor
+              );
+            }
+            setEditing(null);
           }}
         />
       )}
@@ -458,16 +444,17 @@ function EquationToolView({ config }: { config: ToolConfig }) {
         showsVerticalScrollIndicator
         overScrollMode="always"
       >
-        {collection && (
+        {(config.parameters ?? []).map((parameter) => (
           <ToolSelectInput
-            config={collection.count}
-            value={String(componentCount)}
+            key={parameter.id}
+            config={parameter}
+            value={parameters[parameter.id] ?? parameter.defaultValue}
             onChange={(value) => {
-              setComponentCount(Number(value));
+              setParameters((previous) => ({ ...previous, [parameter.id]: value }));
               setEditing(null);
             }}
           />
-        )}
+        ))}
         <Text style={styles.instruction}>Tap to edit</Text>
         <SchematicView
           config={activeMode.schematic}

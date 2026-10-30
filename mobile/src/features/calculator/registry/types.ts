@@ -6,9 +6,13 @@ export type ToolVariable = { name: string; title: string; kind: VariableKind; de
 export type SchematicConfig = { grid: GridSize; elements: GridElement[]; aliases?: Record<string, string> };
 export type EquationConfig = { labels: Record<string, { base: string; sub: string }> };
 export type SolveResult = { ok: true; value: number } | { ok: false; error: string };
-export type ToolEquationVariant = { id: string; label: string; variables: string[]; equations: Record<string, Expression> };
+export type ToolEquationVariant = { id: string; label: string; preferredSolveFor?: string; variables: string[]; equations: Record<string, Expression> };
 export type ToolModeConfig = {
   variants?: ToolEquationVariant[];
+  /** Optional shared selection across modes (e.g. component kind). */
+  variantGroup?: string;
+  defaultVariant?: string;
+  preferredSolveFor?: string;
   id: string; label: string; variables: string[]; schematic: SchematicConfig;
   equations: Record<string, Expression>;
 };
@@ -22,12 +26,13 @@ export type ToolInfo = {
 export type CollectionKind = "resistance" | "capacitance" | "inductance";
 export type CollectionToolConfig = {
   kindOptions: { id: CollectionKind; label: string; unit: string; factor: number }[];
-  count: ToolSelectConfig;
   defaultKind: CollectionKind;
   defaultConnection: "series" | "parallel";
 };
 export type ToolConfig = {
-  collection?: CollectionToolConfig; // Optional dynamically generated collection configuration.
+  collection?: CollectionToolConfig; // Legacy calculation metadata; generation moves in stage 2.
+  /** Discrete settings rendered by the shared controller. */
+  parameters?: ToolSelectConfig[];
   info?: ToolInfo;
   slug: string; title: string; defaultMode: string; defaultSolveFor: string;
   variables: Record<string, ToolVariable>;

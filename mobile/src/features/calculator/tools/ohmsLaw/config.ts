@@ -103,6 +103,7 @@ export const ohmsLawConfig: ToolConfig = {
     },
     {
       id: "power",
+      preferredSolveFor: "power",
       label: "Power",
       variables: ["voltage", "current", "power"],
       variants: [

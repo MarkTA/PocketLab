@@ -5,7 +5,25 @@ export const seriesParallelConfig: ToolConfig = {
   defaultMode: "series",
   defaultSolveFor: "equivalent",
   variables: {},
-  modes: [],
+  modes: [
+    ...(["series", "parallel"] as const).map((id) => ({
+      id,
+      label: id === "series" ? "Series" : "Parallel",
+      variables: [],
+      schematic: { grid: { columns: 1, rows: 1 }, elements: [] },
+      equations: {},
+      variantGroup: "componentKind",
+      defaultVariant: "resistance",
+      variants: [
+        { id: "resistance", label: "Resistors", variables: [], equations: {} },
+        { id: "capacitance", label: "Capacitors", variables: [], equations: {} },
+        { id: "inductance", label: "Inductors", variables: [], equations: {} },
+      ],
+    })),
+  ],
+  parameters: [
+    { id: "componentCount", label: "Components", defaultValue: "3", options: [2, 3, 4, 5, 6].map(n => ({ value: String(n), label: String(n) })) },
+  ],
   solve: () => ({ ok: false, error: "Use the collection solver" }),
   collection: {
     defaultConnection: "series",
@@ -15,7 +33,6 @@ export const seriesParallelConfig: ToolConfig = {
       { id: "capacitance", label: "Capacitors", unit: "nF", factor: 1e-9 },
       { id: "inductance", label: "Inductors", unit: "mH", factor: 1e-3 },
     ],
-    count: { id: "componentCount", label: "Components", defaultValue: "3", options: [2, 3, 4, 5, 6].map(n => ({ value: String(n), label: String(n) })) },
   },
   info: {
     overview: "Find the equivalent resistance, capacitance, or ideal inductance of components connected in series or parallel.",
