@@ -67,12 +67,8 @@ function unitsForKind(kind: ToolConfig["variables"][string]["kind"]): Unit[] {
       return powerUnits;
   }
 }
-/** The ordered ids are the independent inputs. One remaining id is calculated. */
+/** Shared controller for static and dynamically generated calculator definitions. */
 export function ToolView({ config }: { config: ToolConfig }) {
-  return <EquationToolView config={config} />;
-}
-
-function EquationToolView({ config }: { config: ToolConfig }) {
   const { preferences } = useCalculatorPreferences();
   const [mode, setMode] = useState<string>(config.defaultMode);
   const [parameters, setParameters] = useState<Record<string, string>>(() =>
@@ -155,7 +151,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
       : (config.independentInputs ?? activeMode.variables.length - 1)));
   const calculation = config.evaluate
     ? config.evaluate(calculationContext)
-    : canSolve && ids.includes(target) && !activeOrder.includes(target)
+    : config.solve && canSolve && ids.includes(target) && !activeOrder.includes(target)
       ? config.solve(mode, target, resolved, variant?.id)
       : null;
   const values: Record<string, number> = { ...resolved };

@@ -87,8 +87,6 @@ export const seriesParallelConfig: ToolConfig = {
     validate: (value) => Number.isFinite(value) && value >= 0
       ? null : "Enter a valid, nonnegative component value.",
   },
-  // Kept for compatibility with the static ToolConfig signature until the final cleanup.
-  solve: () => ({ ok: false, error: "No output available" }),
   info: {
     overview: "Find the equivalent resistance, capacitance, or ideal inductance of components connected in series or parallel.",
     equations: ["Resistors: Rseries = ΣRᵢ; 1/Rparallel = Σ(1/Rᵢ)", "Capacitors: 1/Cseries = Σ(1/Cᵢ); Cparallel = ΣCᵢ", "Uncoupled inductors: Lseries = ΣLᵢ; 1/Lparallel = Σ(1/Lᵢ)"],

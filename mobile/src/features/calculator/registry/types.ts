@@ -24,11 +24,6 @@ export type ToolInfo = {
   considerations?: string[];
 };
 export type CollectionKind = "resistance" | "capacitance" | "inductance";
-export type CollectionToolConfig = {
-  kindOptions: { id: CollectionKind; label: string; unit: string; factor: number }[];
-  defaultKind: CollectionKind;
-  defaultConnection: "series" | "parallel";
-};
 /** Resolved presentation for the currently selected tool controls. */
 export type ToolPresentation = {
   variables: Record<string, ToolVariable>;
@@ -82,7 +77,8 @@ export type ToolConfig = {
   slug: string; title: string; defaultMode: string; defaultSolveFor: string;
   variables: Record<string, ToolVariable>;
   modes: ToolModeConfig[];
-  solve: (mode: string, output: string, inputs: Record<string, number>, variant?: string) => SolveResult;
+  /** Legacy/static solver; dynamically generated tools may use evaluate instead. */
+  solve?: (mode: string, output: string, inputs: Record<string, number>, variant?: string) => SolveResult;
   /** Independent manual inputs required for this tool; defaults to mode variables minus one. */
   independentInputs?: number | ((mode: string) => number);
   /** Derive additional values without changing the entered inputs. */
