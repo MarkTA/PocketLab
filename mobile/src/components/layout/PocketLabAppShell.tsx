@@ -12,6 +12,7 @@ import { ScanDeviceSheet } from "@/features/device/ScanDeviceSheet";
 import { SavedMeasurementsScreen } from "@/features/dmm/components/SavedMeasurementsScreen";
 import { listSavedMeasurements } from "@/features/dmm/storage/savedMeasurements";
 import { findCategory, findTool } from "@/features/calculator/catalog";
+import { toolRegistryConfig } from "@/features/calculator/registry/toolRegistryConfig";
 import { AppShellContextProvider } from "@/features/appShell/AppShellContext";
 import { useSettingsAdapter } from "@/features/settings/useSettingsAdapter";
 import { WorkspaceBar } from "@/components/navigation/WorkspaceBar";
@@ -172,7 +173,8 @@ export function PocketLabAppShell({ children }: { children: ReactNode }) {
         <View style={styles.workspaceRow}>
           <View style={styles.mainColumn}>
             {!isLandscape && location.child ? (
-              <FeatureSubheader title={location.child} onBack={goBackInCalculator} />
+              <FeatureSubheader title={location.child} onBack={goBackInCalculator}
+                toolConfig={pathname.startsWith("/calculator/tool/") ? toolRegistryConfig[decodeURIComponent(pathname.split("/")[3] ?? "")] : undefined} />
             ) : null}
             <View style={styles.content}>{children}</View>
           </View>
