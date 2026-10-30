@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import Svg, { G, Line, Rect, Text as SvgText } from "react-native-svg";
 import type { ElementState, GridElement, GridSize } from "./grid";
+import { BatterySymbol } from "./symbols/BatterySymbol";
+import { CurrentArrowSymbol } from "./symbols/CurrentArrowSymbol";
 import { GroundSymbol } from "./symbols/GroundSymbol";
 import { ResistorSymbol } from "./symbols/ResistorSymbol";
 import { TerminalSymbol } from "./symbols/TerminalSymbol";
@@ -55,7 +57,7 @@ export function SchematicCanvas({
   const handleCellPress = (cell: number) => {
     onCellPress?.(cell);
     const element = cellElements.get(cell);
-    if (element && "id" in element && element.id) onElementPress?.(element.id);
+    if (element && "id" in element && element.id && states?.[element.id] !== "inactive") onElementPress?.(element.id);
   };
 
   return (
@@ -88,13 +90,17 @@ export function SchematicCanvas({
           const key = "id" in element && element.id ? element.id : `${element.type}-${element.cell}-${index}`;
           const value = "id" in element && element.id ? values?.[element.id] : undefined;
           const state = "id" in element && element.id ? states?.[element.id] : undefined;
-          const color = state === "measured" ? "#2865AD" : state === "calculated" ? "#d65924" : "#008577";
+          const color = state === "inactive" ? "#a4adb4" : state === "calculated" ? "#d65924" : state === "measured" ? "#2865AD" : "#174c55";
           return (
             <G key={key} transform={`translate(${col * cellSize}, ${row * cellSize})`}>
               {element.type === "resistor" && <ResistorSymbol cellSize={cellSize}
                 name={element.label} orientation={element.orientation} value={value} color={color} />}
               {element.type === "terminal" && <TerminalSymbol cellSize={cellSize}
                 name={element.label} side={element.side} value={value} color={color} />}
+              {element.type === "battery" && <BatterySymbol cellSize={cellSize}
+                name={element.label} orientation={element.orientation} positive={element.positive} value={value} color={color} />}
+              {element.type === "currentArrow" && <CurrentArrowSymbol cellSize={cellSize}
+                name={element.label} direction={element.direction} radius={element.radius} length={element.length} value={value} color={color} />}
               {element.type === "ground" && <GroundSymbol cellSize={cellSize} />}
               {(element.type === "wire" || element.type === "node") && (
                 <WireSymbol cellSize={cellSize} ports={element.sides} />

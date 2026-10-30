@@ -1,8 +1,8 @@
 import type { CalculatorPreferences } from "./calculatorPreferences";
 
-export type EngineeringQuantity = "voltage" | "resistance" | "current" | "capacitance" | "inductance" | "frequency";
+export type EngineeringQuantity = "voltage" | "resistance" | "current" | "capacitance" | "inductance" | "frequency" | "power";
 const units: Record<EngineeringQuantity, string> = {
-  voltage: "V", resistance: "Ω", current: "A", capacitance: "F", inductance: "H", frequency: "Hz",
+  voltage: "V", resistance: "Ω", current: "A", capacitance: "F", inductance: "H", frequency: "Hz", power: "W",
 };
 const prefixes: Record<number, string> = {
   [-12]: "p", [-9]: "n", [-6]: "µ", [-3]: "m", [0]: "", [3]: "k", [6]: "M", [9]: "G", [12]: "T",

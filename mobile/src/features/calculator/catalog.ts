@@ -1,3 +1,4 @@
+import { toolRegistryConfig } from "./registry/toolRegistryConfig";
 export type CalculatorTemplate = "Quick converter" | "Circuit solver" | "Interactive";
 
 export type CalculatorCategory = {
@@ -337,15 +338,34 @@ export function findTool(slug: string | undefined): CalculatorTool | undefined {
 }
 
 export function searchTools(query: string): CalculatorTool[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return [];
 
-  if (!normalizedQuery) {
-    return [];
-  }
-
-  return calculatorTools.filter((tool) =>
-    [tool.title, tool.description, ...tool.aliases].some((value) =>
-      value.toLocaleLowerCase().includes(normalizedQuery)
-    )
-  );
+  const score = (tool: CalculatorTool): number => {
+    const info = toolRegistryConfig[tool.slug]?.info;
+    const sources: { text: string; weight: number }[] = [
+      { text: tool.title, weight: 12 },
+      ...tool.aliases.map(text => ({ text, weight: 8 })),
+      { text: tool.description, weight: 3 },
+      ...(info ? [
+        { text: info.overview, weight: 2 },
+        ...info.applications.flatMap(application => [
+          { text: application.title, weight: 10 },
+          ...((application.keywords ?? []).map(text => ({ text, weight: 8 }))),
+          { text: application.description, weight: 3 },
+        ]),
+      ] : []),
+    ];
+    // Each query word must match at least one field. Prioritize exact phrase
+    // matches in a title or application name, but retain partial-word lookup.
+    const words = tokens.map(token => Math.max(0, ...sources.filter(source =>
+      source.text.toLocaleLowerCase().includes(token)).map(source => source.weight)));
+    if (words.some(weight => weight === 0)) return 0;
+    return words.reduce((total, weight) => total + weight, 0) +
+      Math.max(0, ...sources.filter(source => source.text.toLocaleLowerCase().includes(tokens.join(" "))).map(source => source.weight));
+  };
+  return calculatorTools.map(tool => ({ tool, rank: score(tool) }))
+    .filter(item => item.rank > 0)
+    .sort((a, b) => b.rank - a.rank)
+    .map(item => item.tool);
 }
