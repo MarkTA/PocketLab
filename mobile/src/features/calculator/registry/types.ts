@@ -39,17 +39,43 @@ export type ToolPresentation = {
   equationLabels?: EquationConfig["labels"];
   /** Maps renderer IDs to the corresponding stable state IDs. */
   displayIds?: Record<string, string>;
+  /** Derived output is not counted among independently entered variables. */
+  output?: { id: string; label: string; kind: VariableKind };
 };
 export type ToolGenerationContext = {
   mode: string;
   variant?: string;
   parameters: Readonly<Record<string, string>>;
 };
+/** Tool-specific behavior without tool-specific branches in ToolView. */
+export type ToolCalculationContext = {
+  mode: string;
+  variant?: string;
+  parameters: Readonly<Record<string, string>>;
+  target: string;
+  values: Readonly<Record<string, number>>;
+  activeVariables: readonly string[];
+  independentVariables: readonly string[];
+};
+export type ToolInputPolicy = {
+  /** false for collections whose output cannot be entered as an independent input. */
+  allowCalculate?: boolean;
+  /** All entries may be retained when using variable-length collections. */
+  maxIndependent?: number | ((context: ToolCalculationContext) => number);
+  /** Blank entry removes a previous value instead of showing a validation error. */
+  clearOnEmpty?: boolean;
+  /** Validation error; null means the value is accepted. */
+  validate?: (value: number, kind: VariableKind) => string | null;
+  /** Reset only variables in the current presentation, preserving other variants. */
+  resetScope?: "all" | "active";
+};
 export type ToolConfig = {
   /** Dynamic tools generate the same presentation consumed by the shared view. */
   generate?: (context: ToolGenerationContext) => ToolPresentation;
 
-  collection?: CollectionToolConfig; // Legacy calculation metadata; generation moves in stage 2.
+  /** Per-tool calculation and input behavior supplied through generic contracts. */
+  evaluate?: (context: ToolCalculationContext) => SolveResult | null;
+  inputPolicy?: ToolInputPolicy;
   /** Discrete settings rendered by the shared controller. */
   parameters?: ToolSelectConfig[];
   info?: ToolInfo;

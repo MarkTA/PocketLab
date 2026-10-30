@@ -1,31 +1,14 @@
-import type {
-  CollectionKind,
-  ToolConfig,
-  ToolGenerationContext,
-  ToolPresentation,
-  ToolVariable,
-} from "../../registry/types";
-import {
-  collectionEquationLabels,
-  collectionId,
-  collectionSymbol,
-  generateCollectionEquation,
-  generateCollectionSchematic,
-} from "./generators";
-
+import { collectionEquationLabels, collectionId, collectionSymbol, generateCollectionEquation, generateCollectionSchematic } from "./generators";
+import type { CollectionKind, ToolConfig, ToolGenerationContext, ToolPresentation, ToolVariable } from "../../registry/types";
+import { equivalentValue } from "./calculations";
 const kindOptions = [
   { id: "resistance", label: "Resistors", unit: "Ω", factor: 1 },
   { id: "capacitance", label: "Capacitors", unit: "nF", factor: 1e-9 },
   { id: "inductance", label: "Inductors", unit: "mH", factor: 1e-3 },
 ] as const;
 
-function generatePresentation({
-  mode,
-  variant,
-  parameters,
-}: ToolGenerationContext): ToolPresentation {
-  const kind: CollectionKind =
-    variant === "capacitance" || variant === "inductance" ? variant : "resistance";
+function generatePresentation({ mode, variant, parameters }: ToolGenerationContext): ToolPresentation {
+  const kind: CollectionKind = variant === "capacitance" || variant === "inductance" ? variant : "resistance";
   const selected = kindOptions.find((option) => option.id === kind)!;
   const count = Math.max(2, Math.min(6, Number(parameters.componentCount) || 3));
   const connection = mode === "parallel" ? "parallel" : "series";
@@ -58,6 +41,7 @@ function generatePresentation({
     expression: generateCollectionEquation(kind, connection, count),
     equationLabels: collectionEquationLabels(kind, count),
     displayIds,
+    output: { id: "equivalent", label: `${base}eq`, kind },
   };
 }
 
@@ -85,49 +69,34 @@ export const seriesParallelConfig: ToolConfig = {
     })),
   ],
   parameters: [
-    {
-      id: "componentCount",
-      label: "Components",
-      defaultValue: "3",
-      options: [2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: String(n) })),
-    },
+    { id: "componentCount", label: "Components", defaultValue: "3", options: [2, 3, 4, 5, 6].map(n => ({ value: String(n), label: String(n) })) },
   ],
-  solve: () => ({ ok: false, error: "Use the collection solver" }),
-  collection: {
-    defaultConnection: "series",
-    defaultKind: "resistance",
-    kindOptions: [...kindOptions],
+  // The generic view calls evaluate() with the current presentation and inputs.
+  evaluate: ({ mode, variant, parameters, values }) => {
+    const kind: CollectionKind = variant === "capacitance" || variant === "inductance" ? variant : "resistance";
+    const count = Math.max(2, Math.min(6, Number(parameters.componentCount) || 3));
+    const parts = Array.from({ length: count }, (_, index) => values[`${kind}:${collectionId(index)}`] ?? null);
+    const result = equivalentValue(kind, mode === "parallel" ? "parallel" : "series", parts);
+    return result === null ? null : { ok: true, value: result };
   },
+  inputPolicy: {
+    allowCalculate: false,
+    maxIndependent: Number.POSITIVE_INFINITY,
+    clearOnEmpty: true,
+    resetScope: "active",
+    validate: (value) => Number.isFinite(value) && value >= 0
+      ? null : "Enter a valid, nonnegative component value.",
+  },
+  // Kept for compatibility with the static ToolConfig signature until the final cleanup.
+  solve: () => ({ ok: false, error: "No output available" }),
   info: {
-    overview:
-      "Find the equivalent resistance, capacitance, or ideal inductance of components connected in series or parallel.",
-    equations: [
-      "Resistors: Rseries = ΣRᵢ; 1/Rparallel = Σ(1/Rᵢ)",
-      "Capacitors: 1/Cseries = Σ(1/Cᵢ); Cparallel = ΣCᵢ",
-      "Uncoupled inductors: Lseries = ΣLᵢ; 1/Lparallel = Σ(1/Lᵢ)",
-    ],
+    overview: "Find the equivalent resistance, capacitance, or ideal inductance of components connected in series or parallel.",
+    equations: ["Resistors: Rseries = ΣRᵢ; 1/Rparallel = Σ(1/Rᵢ)", "Capacitors: 1/Cseries = Σ(1/Cᵢ); Cparallel = ΣCᵢ", "Uncoupled inductors: Lseries = ΣLᵢ; 1/Lparallel = Σ(1/Lᵢ)"],
     applications: [
-      {
-        title: "Combining resistor values",
-        description: "Calculate equivalent resistance for resistor networks.",
-        keywords: ["parallel resistor", "series resistor", "equivalent resistance"],
-      },
-      {
-        title: "Capacitor banks",
-        description:
-          "Estimate the combined capacitance of capacitors in series or parallel.",
-        keywords: ["capacitor bank", "equivalent capacitance"],
-      },
-      {
-        title: "Inductor combinations",
-        description: "Estimate ideal combined inductance for uncoupled coils.",
-        keywords: ["inductor", "equivalent inductance"],
-      },
+      { title: "Combining resistor values", description: "Calculate equivalent resistance for resistor networks.", keywords: ["parallel resistor", "series resistor", "equivalent resistance"] },
+      { title: "Capacitor banks", description: "Estimate the combined capacitance of capacitors in series or parallel.", keywords: ["capacitor bank", "equivalent capacitance"] },
+      { title: "Inductor combinations", description: "Estimate ideal combined inductance for uncoupled coils.", keywords: ["inductor", "equivalent inductance"] },
     ],
-    considerations: [
-      "All components are modeled as ideal.",
-      "Inductor calculations assume negligible mutual coupling.",
-      "Component voltage and current ratings must be checked separately.",
-    ],
+    considerations: ["All components are modeled as ideal.", "Inductor calculations assume negligible mutual coupling.", "Component voltage and current ratings must be checked separately."],
   },
 };

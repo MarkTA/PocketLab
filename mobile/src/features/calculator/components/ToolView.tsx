@@ -8,11 +8,7 @@ import {
 } from "../../dmm/storage/savedMeasurements";
 import { useCalculatorPreferences } from "../preferences/calculatorPreferences";
 import { formatQuantity } from "../preferences/engineeringFormat";
-import type {
-  CollectionKind,
-  ToolConfig,
-} from "../registry/types";
-import { equivalentValue } from "../tools/seriesParallel/calculations";
+import type { ToolCalculationContext, ToolConfig } from "../registry/types";
 
 import { InteractiveEquation } from "./InteractiveEquation";
 import { SchematicView } from "./SchematicView";
@@ -71,15 +67,6 @@ function unitsForKind(kind: ToolConfig["variables"][string]["kind"]): Unit[] {
       return powerUnits;
   }
 }
-function formatted(
-  id: VariableId,
-  value: number,
-  preferences: ReturnType<typeof useCalculatorPreferences>["preferences"],
-  config: ToolConfig
-) {
-  return formatQuantity(value, config.variables[id].kind, preferences);
-}
-
 /** The ordered ids are the independent inputs. One remaining id is calculated. */
 export function ToolView({ config }: { config: ToolConfig }) {
   return <EquationToolView config={config} />;
@@ -111,8 +98,6 @@ function EquationToolView({ config }: { config: ToolConfig }) {
   );
   const [priorityNotice, setPriorityNotice] = useState("");
 
-  const collection = config.collection;
-  const isCollection = !!collection;
   const configuredMode = config.modes.find((item) => item.id === mode) ?? config.modes[0];
   const variantKey = configuredMode.variantGroup ?? mode;
   const configuredVariant = configuredMode.variants?.find(
@@ -121,19 +106,16 @@ function EquationToolView({ config }: { config: ToolConfig }) {
     (item) => item.id === configuredMode.defaultVariant
   ) ?? configuredMode.variants?.[0];
   // Every tool supplies a resolved presentation; static tools use their mode as-is.
-  // Stage 3 will also move collection solving and input policy behind tool config.
+  // The tool supplies its presentation, solver and input policy.
   const presentation = config.generate?.({ mode, variant: configuredVariant?.id, parameters });
   const variables = presentation?.variables ?? config.variables;
   const activeMode = presentation?.mode ?? configuredMode;
   const variant = configuredVariant;
   const ids = presentation?.activeVariables ?? (variant?.variables ?? activeMode.variables);
-  const componentKind = (configuredVariant?.id ?? collection?.defaultKind ?? "resistance") as CollectionKind;
-  const componentCount = Number(parameters.componentCount ?? 3);
-  const connection = mode === "parallel" ? "parallel" : "series";
-  const capacity =
-    typeof config.independentInputs === "function"
-      ? config.independentInputs(mode)
-      : (config.independentInputs ?? activeMode.variables.length - 1);
+  const output = presentation?.output;
+  const inputPolicy = config.inputPolicy;
+  const allowCalculate = inputPolicy?.allowCalculate !== false;
+  const targetCandidates = ids;
   const activeOrder = order.filter((id) => activeMode.variables.includes(id));
   const inputs = useMemo(() => {
     const result: Record<string, number> = {};
@@ -145,31 +127,34 @@ function EquationToolView({ config }: { config: ToolConfig }) {
   }, [entries, order]);
   // Derived values have no independent state: they are recomputed on every input change.
   const resolved = useMemo(
-    () => (isCollection ? inputs : (config.resolveValues?.(inputs, mode) ?? inputs)),
-    [config, inputs, mode, isCollection]
+    () => config.resolveValues?.(inputs, mode) ?? inputs,
+    [config, inputs, mode]
   );
   const unknown =
     preferredCalculated &&
-    ids.includes(preferredCalculated) &&
+    targetCandidates.includes(preferredCalculated) &&
     !activeOrder.includes(preferredCalculated)
       ? preferredCalculated
-      : (ids.find((id) => !activeOrder.includes(id)) ?? null);
-  const target: VariableId = isCollection
-    ? "equivalent"
-    : (unknown ?? preferredCalculated ?? config.defaultSolveFor);
+      : (targetCandidates.find((id) => !activeOrder.includes(id)) ?? null);
+  const target: VariableId = output?.id ?? (unknown ?? preferredCalculated ?? config.defaultSolveFor);
   const neededIds = ids.filter((id) => id !== target);
   const canSolve = neededIds.every((id) => Number.isFinite(resolved[id]));
-  const collectionValues = Array.from(
-    { length: componentCount },
-    (_, index) => inputs[`${componentKind}:component-${index}`] ?? null
-  );
-  const collectionResult = isCollection
-    ? equivalentValue(componentKind, connection, collectionValues)
-    : null;
-  const calculation = isCollection
-    ? collectionResult === null
-      ? null
-      : { ok: true as const, value: collectionResult }
+  const calculationContext: ToolCalculationContext = {
+    mode,
+    variant: variant?.id,
+    parameters,
+    target,
+    values: resolved,
+    activeVariables: ids,
+    independentVariables: activeOrder,
+  };
+  const capacity = typeof inputPolicy?.maxIndependent === "function"
+    ? inputPolicy.maxIndependent(calculationContext)
+    : (inputPolicy?.maxIndependent ?? (typeof config.independentInputs === "function"
+      ? config.independentInputs(mode)
+      : (config.independentInputs ?? activeMode.variables.length - 1)));
+  const calculation = config.evaluate
+    ? config.evaluate(calculationContext)
     : canSolve && ids.includes(target) && !activeOrder.includes(target)
       ? config.solve(mode, target, resolved, variant?.id)
       : null;
@@ -230,7 +215,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
     setEditing(null);
   }
   function openEditor(id: VariableId) {
-    if (id === "equivalent") return;
+    if (id === output?.id) return;
     id = mapVariableId(id);
     if (!ids.includes(id)) return;
     const current = values[id];
@@ -255,7 +240,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
     setUnitMenu(false);
   }
   function chooseCalculated() {
-    if (!editing || isCollection) return;
+    if (!editing || !allowCalculate) return;
     const id = editing;
     const nextEntries = { ...entries };
     delete nextEntries[id];
@@ -267,12 +252,12 @@ function EquationToolView({ config }: { config: ToolConfig }) {
   }
   function applyValue(value: number, source: Source, measurementId?: string) {
     if (!editing) return;
-    if (
-      !Number.isFinite(value) ||
-      (variables[editing].kind === "resistance" && !isCollection && value <= 0) ||
-      (isCollection && value < 0)
-    ) {
-      setError("Enter a valid finite value (resistance must be positive).");
+    const validationError = inputPolicy?.validate
+      ? inputPolicy.validate(value, variables[editing].kind)
+      : (!Number.isFinite(value) || (variables[editing].kind === "resistance" && value <= 0)
+        ? "Enter a valid finite value (resistance must be positive)." : null);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     const id = editing;
@@ -281,7 +266,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
     const activeInputs = nextOrder.filter((candidate) =>
       activeMode.variables.includes(candidate)
     );
-    if (!isCollection && activeInputs.length > capacity) {
+    if (activeInputs.length > capacity) {
       const displaced = activeInputs[0];
       delete next[displaced];
       nextOrder.splice(nextOrder.indexOf(displaced), 1);
@@ -297,11 +282,11 @@ function EquationToolView({ config }: { config: ToolConfig }) {
     closeEditor();
   }
   function applyEdit() {
-    if (editMode === "calculate" && !isCollection) {
+    if (editMode === "calculate" && allowCalculate) {
       chooseCalculated();
       return;
     }
-    if (isCollection && !pendingMeasurement && !draft.trim()) {
+    if (inputPolicy?.clearOnEmpty && !pendingMeasurement && !draft.trim()) {
       if (editing) {
         setEntries((previous) => {
           const next = { ...previous };
@@ -429,19 +414,13 @@ function EquationToolView({ config }: { config: ToolConfig }) {
         <View style={styles.resultArea}>
           {calculation?.ok && !activeOrder.includes(target) ? (
             <Text style={styles.calculatedResult}>
-              {isCollection
-                ? `${componentKind === "resistance" ? "R" : componentKind === "capacitance" ? "C" : "L"}eq`
-                : variables[target].name}{" "}
+              {output?.label ?? variables[target]?.name ?? target}{" "}
               ={" "}
-              {isCollection
-                ? formatQuantity(calculation.value, componentKind, preferences)
-                : formatted(target, calculation.value, preferences, config)}
+              {formatQuantity(calculation.value, output?.kind ?? variables[target].kind, preferences)}
             </Text>
           ) : (
             <Text style={styles.pendingResult}>
-              {isCollection
-                ? `${componentKind === "resistance" ? "R" : componentKind === "capacitance" ? "C" : "L"}eq`
-                : variables[target].name}{" "}
+              {output?.label ?? variables[target]?.name ?? target}{" "}
               = —
             </Text>
           )}
@@ -454,20 +433,13 @@ function EquationToolView({ config }: { config: ToolConfig }) {
           mode="text"
           icon="refresh"
           onPress={() => {
-            setEntries((previous) =>
-              isCollection
-                ? Object.fromEntries(
-                    Object.entries(previous).filter(
-                      ([id]) => !id.startsWith(`${componentKind}:`)
-                    )
-                  )
-                : {}
-            );
-            setOrder((previous) =>
-              isCollection
-                ? previous.filter((id) => !id.startsWith(`${componentKind}:`))
-                : []
-            );
+            const resetIds = new Set(Object.keys(variables));
+            setEntries((previous) => inputPolicy?.resetScope === "active"
+              ? Object.fromEntries(Object.entries(previous).filter(([id]) => !resetIds.has(id)))
+              : {});
+            setOrder((previous) => inputPolicy?.resetScope === "active"
+              ? previous.filter((id) => !resetIds.has(id))
+              : []);
             setPreferredCalculated(config.defaultSolveFor);
             setPriorityNotice("");
           }}
@@ -495,7 +467,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
                 ? `${variables[editing].title} (${variables[editing].name})`
                 : "Edit"}
             </Text>
-            {!isCollection && (
+            {allowCalculate && (
               <SegmentedButtons
                 value={editMode}
                 onValueChange={(v) => {
@@ -560,7 +532,7 @@ function EquationToolView({ config }: { config: ToolConfig }) {
             <View style={styles.actions}>
               <Button onPress={closeEditor}>Cancel</Button>
               <Button mode="contained" onPress={applyEdit}>
-                {editMode === "set" || isCollection ? "Save" : "Calculate"}
+                {editMode === "set" || !allowCalculate ? "Save" : "Calculate"}
               </Button>
             </View>
           </View>
