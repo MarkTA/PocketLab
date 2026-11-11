@@ -175,6 +175,14 @@ export const calculatorTools: CalculatorTool[] = [
     template: "Circuit solver",
   },
   {
+    slug: "rc-filter",
+    title: "RC Filter",
+    description: "Design first-order passive RC low-pass and high-pass filters with simulated magnitude and phase response.",
+    categorySlug: "signals-ac-filters",
+    aliases: ["cutoff frequency", "frequency response", "AC coupling", "low pass", "high pass", "Bode plot"],
+    template: "Circuit solver",
+  },
+  {
     slug: "rc-rl-filters",
     title: "RC & RL Filters",
     description: "Solve cutoff frequency, time constant, attenuation, and phase.",

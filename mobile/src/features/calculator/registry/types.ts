@@ -1,7 +1,7 @@
 import type { ToolSelectConfig } from "../components/ToolSelectInput";
 import type { GridElement, GridSize } from "../schematic/grid";
 import type { Expression } from "./expression";
-export type VariableKind = "voltage" | "resistance" | "current" | "power" | "capacitance" | "inductance";
+export type VariableKind = "voltage" | "resistance" | "current" | "power" | "capacitance" | "inductance" | "frequency";
 export type ToolVariable = { name: string; title: string; kind: VariableKind; defaultUnit: string; mathLabel: { base: string; sub: string } };
 export type SchematicConfig = { grid: GridSize; elements: GridElement[]; aliases?: Record<string, string> };
 export type EquationConfig = { labels: Record<string, { base: string; sub: string }> };
@@ -23,7 +23,7 @@ export type ToolInfo = {
   applications: ToolApplication[];
   considerations?: string[];
 };
-export type CollectionKind = "resistance" | "capacitance" | "inductance";
+export type CollectionKind = "resistance" | "capacitance" | "inductance" | "frequency";
 /** Resolved presentation for the currently selected tool controls. */
 export type ToolPresentation = {
   variables: Record<string, ToolVariable>;
@@ -64,7 +64,16 @@ export type ToolInputPolicy = {
   /** Reset only variables in the current presentation, preserving other variants. */
   resetScope?: "all" | "active";
 };
+/** Optional simulation data, independent of the tool's UI. */
+export type FrequencySample = { frequency: number; magnitudeDb: number; phaseDeg: number };
+export type FrequencyResponseConfig = {
+  title?: string;
+  /** Return null while the circuit lacks sufficient valid inputs. */
+  simulate: (values: Readonly<Record<string, number>>, mode: string) => FrequencySample[] | null;
+};
 export type ToolConfig = {
+  frequencyResponse?: FrequencyResponseConfig;
+
   /** Dynamic tools generate the same presentation consumed by the shared view. */
   generate?: (context: ToolGenerationContext) => ToolPresentation;
 

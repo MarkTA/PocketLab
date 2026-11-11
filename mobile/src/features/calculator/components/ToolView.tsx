@@ -13,6 +13,7 @@ import type { ToolCalculationContext, ToolConfig } from "../registry/types";
 import { InteractiveEquation } from "./InteractiveEquation";
 import { SchematicView } from "./SchematicView";
 import { ToolSelectInput } from "./ToolSelectInput";
+import { FrequencyResponseView } from "./FrequencyResponseView";
 import { ToolVariantTabs } from "./ToolVariantTabs";
 
 type Source = "manual" | "measurement";
@@ -50,6 +51,12 @@ function unitsForKind(kind: ToolConfig["variables"][string]["kind"]): Unit[] {
         { label: "µF", factor: 1e-6 },
         { label: "mF", factor: 1e-3 },
         { label: "F", factor: 1 },
+      ];
+    case "frequency":
+      return [
+        { label: "Hz", factor: 1 },
+        { label: "kHz", factor: 1e3 },
+        { label: "MHz", factor: 1e6 },
       ];
     case "inductance":
       return [
@@ -93,6 +100,7 @@ export function ToolView({ config }: { config: ToolConfig }) {
     null
   );
   const [priorityNotice, setPriorityNotice] = useState("");
+  const [showResponse, setShowResponse] = useState(false);
 
   const configuredMode = config.modes.find((item) => item.id === mode) ?? config.modes[0];
   const variantKey = configuredMode.variantGroup ?? mode;
@@ -424,6 +432,23 @@ export function ToolView({ config }: { config: ToolConfig }) {
             <Text style={styles.error}>{calculation.error}</Text>
           )}
         </View>
+        {config.frequencyResponse && (
+          <>
+            <Button
+              mode="text"
+              icon={showResponse ? "chart-bell-curve" : "chart-line"}
+              onPress={() => setShowResponse((previous) => !previous)}
+            >
+              {showResponse ? "Hide response" : "Show response"}
+            </Button>
+            {showResponse && (
+              <FrequencyResponseView
+                title={config.frequencyResponse.title}
+                samples={config.frequencyResponse.simulate(values, mode)}
+              />
+            )}
+          </>
+        )}
         <Button
           compact
           mode="text"
